@@ -89,6 +89,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "can_bus"
+version = "0.1.0"
+
+[[package]]
 name = "cortex-m"
 version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -253,6 +257,10 @@ dependencies = [
  "typenum",
  "version_check",
 ]
+
+[[package]]
+name = "herkulex"
+version = "0.1.0"
 
 [[package]]
 name = "nb"

@@ -1,7 +1,9 @@
 
 [workspace]
 members = [
-    "base_roulante"
+    "base_roulante",
+    "herkulex",
+    "can_bus"
 ]
 
 
