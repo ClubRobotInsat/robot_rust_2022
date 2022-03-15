@@ -91,6 +91,16 @@ dependencies = [
 [[package]]
 name = "can_bus"
 version = "0.1.0"
+dependencies = [
+ "bxcan 0.6.2",
+ "cortex-m 0.6.7",
+ "cortex-m-rt",
+ "cortex-m-semihosting",
+ "embedded-hal",
+ "nb 0.1.3",
+ "panic-halt",
+ "stm32f1xx-hal",
+]
 
 [[package]]
 name = "cortex-m"
