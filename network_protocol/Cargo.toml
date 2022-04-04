@@ -1,12 +1,9 @@
 [package]
-name = "x86_tests"
+name = "network_protocol"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
-[dev-dependencies]
-network_protocol = {path = "../network_protocol"}
-
+embedded-hal = "0.2.7"
