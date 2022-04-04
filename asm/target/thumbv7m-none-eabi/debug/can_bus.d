@@ -1,0 +1,1 @@
+/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/can_bus: /home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/can_bus/src/lib.rs /home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/can_bus/src/main.rs

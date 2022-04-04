@@ -1,0 +1,1 @@
+cargo:rustc-link-search=/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/build/defmt-7ddd2f523d6ae29a/out

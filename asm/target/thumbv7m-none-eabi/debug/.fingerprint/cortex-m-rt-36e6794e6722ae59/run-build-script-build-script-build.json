@@ -1,0 +1,1 @@
+{"rustc":14330414595928666026,"features":"","target":0,"profile":0,"path":0,"deps":[[18215729843378173202,"build_script_build",false,15904978028282306952]],"local":[{"RerunIfChanged":{"output":"thumbv7m-none-eabi/debug/build/cortex-m-rt-36e6794e6722ae59/output","paths":["bin/thumbv7m-none-eabi.a","build.rs","link.x.in"]}}],"rustflags":[],"metadata":0,"config":0,"compile_kind":0}
