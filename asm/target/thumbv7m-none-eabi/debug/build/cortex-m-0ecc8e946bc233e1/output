@@ -1,4 +1,0 @@
-cargo:rustc-link-lib=static=cortex-m
-cargo:rustc-link-search=/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/build/cortex-m-0ecc8e946bc233e1/out
-cargo:rustc-cfg=cortex_m
-cargo:rustc-cfg=armv7m

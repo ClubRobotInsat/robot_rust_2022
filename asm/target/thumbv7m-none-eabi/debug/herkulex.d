@@ -1,1 +1,0 @@
-/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/herkulex: /home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/herkulex/src/lib.rs /home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/herkulex/src/main.rs

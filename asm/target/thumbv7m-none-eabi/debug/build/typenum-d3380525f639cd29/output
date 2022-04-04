@@ -1,2 +1,0 @@
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/build/typenum-d3380525f639cd29/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/home/joel/Documents/Code/ClubRobot/robot_rust_2022/asm/target/thumbv7m-none-eabi/debug/build/typenum-d3380525f639cd29/out/op.rs
