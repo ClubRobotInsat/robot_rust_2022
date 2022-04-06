@@ -5,9 +5,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
-const MAX_ID_LEN: u8 = 2^4 -1;
-const MAX_SEQ_NUMBER_LEN: u8 = 2^4 -1;
-const MAX_ID_MESS_LEN: u8 = 2^3 -1;
+const MAX_ID_LEN: u8 = 16 -1;
+const MAX_SEQ_NUMBER_LEN: u8 = 16 -1;
+const MAX_ID_MESS_LEN: u8 = 8 -1;
 const BYTES_LEFT_IN_PACKAGE: u8 = 6;
 
 /// Defines a struct which can receive data ( RX )
@@ -100,7 +100,6 @@ impl Header {
     pub fn get_id_dest(&self) -> u8 {
         self.id_dest
     }
-
     pub fn get_id_src(&self) -> u8 {
         self.id_src
     }
@@ -120,8 +119,29 @@ impl Packet {
         Packet { header, payload: data, }
     }
 
-    pub fn send(&mut self) -> Result<(),SendError> {
-        todo!();
+    fn get_packet_as_binary_array(&self) -> [u8; 6] {
+        let mut packet = [0u8; 6];
+        let id_dest_in_significant_bits = self.header.get_id_dest() << 4;
+        let id_send_in_least_significant_bits = self.header.get_id_src();
+        packet[0] = id_dest_in_significant_bits | id_send_in_least_significant_bits;
+
+        let id_mess_in_significant_bit = self.header.get_id_message() << 5;
+        let seq_number = self.header.get_seq_number() << 1;
+        let is_ack = self.header.get_is_ack() ;
+        packet[1] = id_mess_in_significant_bit | seq_number | is_ack as u8;
+
+        packet[2..].copy_from_slice(&self.payload);
+        packet
+    }
+
+    pub fn send<Tx: Write>(&mut self, tx: &mut Tx) -> Result<(),SendError> {
+        for byte in self.get_packet_as_binary_array() {
+            match tx.write(byte) {
+                Ok(_) => {},
+                Err(_) => return Err(SendError::SendFailed)
+            }
+        }
+        Ok(())
     }
 }
 
@@ -144,7 +164,7 @@ impl Message {
         }
     }
 
-    pub fn send(&mut self) -> Result<(),SendError> {
+    pub fn send<Tx: Write>(&mut self, tx: &mut Tx) -> Result<(),SendError> {
         let remainder = self.data.len()%BYTES_LEFT_IN_PACKAGE as usize;
         if  remainder == 0 { // add 0 to the end of the message
             self.fill_data_with_zeros(remainder)
@@ -160,13 +180,11 @@ impl Message {
                 u8::try_from(i).unwrap() // can't fail as the message is at max 90 bytes long which fits in a u8
             ).unwrap(); // we already checked the validity of the data in the new function of message so it can't crash
             let mut data:[u8; 6] = [0; 6];
-            for d in 0..6 {
-                data[d] = self.data[i + d];
-            }
-            Packet::new(header,data).send()?;
+            data[..6].clone_from_slice(&self.data[i..(6 + i)]);
+            Packet::new(header,data).send(tx)?;
 
         }
-        Err(SendError::SendFailed)
+        Err(SendError::SendFailed) // err
 
     }
 }
@@ -186,6 +204,7 @@ impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
         if data.len() > BYTES_LEFT_IN_PACKAGE as usize {
             return Err(MessageCreationError::MessageTooLong);
         }
+        message.send();
         // send message
         // if message sent successfully remove it from the buffer
         Ok(())
