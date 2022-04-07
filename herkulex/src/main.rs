@@ -6,23 +6,33 @@
 
 // mod modules;
 
+use core::convert::Infallible;
 // use core::ptr::read;
 use cortex_m_rt::entry; // The runtime
 //use embedded_hal::digital::v2::OutputPin; // the `set_high/low`function
-use stm32f1xx_hal::{ pac, prelude::*}; // STM32F1 specific functions
+use stm32f1xx_hal::{  prelude::*}; // STM32F1 specific functions
 #[allow(unused_imports)]
 use panic_halt;
 use stm32f1xx_hal::rcc::Rcc;
+use stm32f1xx_hal::rcc::RccExt;
 use stm32f1xx_hal::pac::Peripherals;
-use stm32f1xx_hal::serial::{Config, Serial};
+use cortex_m::{ singleton};
 
-use nb::block;
-use cortex_m_semihosting::hprintln;
+use nb::{block, Error};
+use cortex_m_semihosting::{hprint, hprintln};
 extern crate drs_0x01;
 use drs_0x01::{Servo, Rotation, JogMode, JogColor, WritableEEPAddr, ReadableEEPAddr, WritableRamAddr, ReadableRamAddr};
 use drs_0x01::builder::{HerkulexMessage, MessageBuilder};
 use drs_0x01::reader::ACKReader;
 use stm32f1xx_hal::timer::delay::Delay;
+use stm32f1xx_hal::{
+    pac,
+    pac::interrupt,
+    pac::USART1,
+    prelude::*,
+    serial::{self, Config, Serial, Event, Rx, Tx},
+};
+use unwrap_infallible::UnwrapInfallible;
 //use stm32f1xx_hal::pac::ethernet_mac::macvlantr::VLANTC_W;
 
 // const x = ;
@@ -31,7 +41,6 @@ use stm32f1xx_hal::timer::delay::Delay;
 // startup code before this, but we don't need to worry about this
 #[entry]
 fn main() -> ! {
-
     //
     // CONFIGURATION STM32
     //
@@ -58,6 +67,7 @@ fn main() -> ! {
     let mut flash = dp.FLASH.constrain();
     let mut gpioa = dp.GPIOA.split();
     let mut afio = dp.AFIO.constrain();
+    let channels = dp.DMA1.split();
 
     // let sys_clock = rcc.cfgr.sysclk(8.mhz()).freeze(&mut flash.acr);
     let clocks_serial = rcc.cfgr.freeze(&mut flash.acr);
@@ -77,10 +87,15 @@ fn main() -> ! {
 
     // separate into tx and rx channels
     let (mut tx, mut rx) = serial.split();
+    let mut rx = rx.with_dma(channels.5);
+
+
 
     // let mut delay = Delay::delay(cp.SYST, clocks_serial);
     let mut delay = cp.SYST.delay(&clocks_serial);
     let mut reader = ACKReader::new();
+
+
 
     //
     // END OF CONFIGURATION
@@ -198,13 +213,115 @@ fn main() -> ! {
     }
 
     ///
+    /// Test
+    fn test_read2(rx: &mut stm32f1xx_hal::serial::Rx<stm32f1xx_hal::stm32::USART1>, tx: &mut stm32f1xx_hal::serial::Tx<stm32f1xx_hal::stm32::USART1>, delay: &mut stm32f1xx_hal::timer::SysDelay)
+
+    {
+        let id_test = 0x28;
+        let servo = Servo::new(0x28);
+        delay.delay_ms(100_u16);
+
+        let _message = servo.stat();
+        // let _message = MessageBuilder::new_with_id(1).stat().build(); // It works
+        let getId = servo.ram_request(ReadableRamAddr::ID);
+        let getTemperature = servo.ram_request(ReadableRamAddr::Temperature);
+
+        // block!(serial.tx.write(_message)).unwrap_infallibre();
+        let mut received_message:[u8; 20] = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+
+        send_message(_message, tx);
+
+
+        received_message = read_message(rx);
+        hprintln!("LAAAA");
+
+        hprintln!("{:?}", received_message);
+
+
+        // let mut i = 0;
+        // let mut pSize = 3; // Read till you know the packet size and then refresh it
+        // let mut ici = false;
+        // while i < pSize {
+        //     let res = block!(rx.read());
+        //     match res {
+        //         Ok(vr) => {
+        //             received_message[i] = vr;
+        //             if i == 2 {
+        //                 pSize = vr as usize; // Refresh packetSize
+        //                 ici = true;
+        //             }
+        //         },
+        //         Err(e) => {
+        //             hprintln!("{:?}",e);
+        //         }
+        //     }
+        //     i+=1;
+        // }
+
+        delay.delay_ms(10_u16);
+
+
+    }
+
+    fn receive_msg(rx: &mut stm32f1xx_hal::serial::Rx<stm32f1xx_hal::stm32::USART1>, buf: &mut [u8; 20]) -> usize
+    {
+        enum RxPhase {
+            Start,
+            Start2,
+            Length,
+            Data { len: usize, idx: usize },
+        }
+
+        let mut rx_phase = RxPhase::Start;
+
+        loop {
+            hprintln!("BOUCLE");
+
+            // Read the word that was just sent. Blocks until the read is complete.
+            let received = block!(rx.read()).unwrap();
+
+            // If the beginning of the packet.
+            if (received & 0x10) != 0 {
+                rx_phase = if received as u8 == 0xFF {
+                    RxPhase::Length
+                } else {
+                    RxPhase::Start
+                }
+            } else {
+                match rx_phase {
+                    RxPhase::Start => {}
+                    RxPhase::Start2 => {}
+
+                    RxPhase::Length => {
+                        if received == 0 {
+                            return 0;
+                        }
+                        rx_phase = RxPhase::Data {
+                            len: received as usize,
+                            idx: 0,
+                        };
+                    }
+
+                    RxPhase::Data { len, ref mut idx } => {
+                        buf[*idx] = received as u8;
+                        *idx += 1;
+                        if *idx == len {
+                            return len;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ///
     /// Send message in through tx
     /// @param msg   : Herkulex message which is an array containing the bytes to send
     /// @param tx    : Tx protocol
     ///
     fn send_message(msg : HerkulexMessage, tx: &mut stm32f1xx_hal::serial::Tx<stm32f1xx_hal::stm32::USART1>) {
         for b in &msg {
-            block!(tx.write(*b)).ok();
+            block!(tx.write(*b)).unwrap_infallible();
         }
     }
 
@@ -376,27 +493,66 @@ fn main() -> ! {
     //
 
     // Servo with Broadcast id
-    let servo_broadcast = Servo::new(0xFE);
-    init(servo_broadcast.id(), &mut tx, &mut delay);
+    // let servo_broadcast = Servo::new(0xFE);
+    // init(servo_broadcast.id(), &mut tx, &mut delay);
 
-    hprintln!("LA");
 
-    let servo = Servo::new(get_id_ram(&mut tx, &mut rx));
-    delay.delay_ms(1_000_u16);
-    hprintln!("LABAS");
-    let new_id = 0x28;
-    change_id_eeprom(servo.id(), new_id, &mut tx, &mut delay);
+    //
+    // hprintln!("LA");
+    // delay.delay_ms(100_u16);
+    //
+    // let servo = Servo::new(get_id_ram(&mut tx, &mut rx));
+    // delay.delay_ms(1_000_u16);
+    // hprintln!("LABAS");
+    // let new_id = 0x28;
+    // change_id_eeprom(servo.id(), new_id, &mut tx, &mut delay);
+
+
+    delay.delay_ms(5000_u16);
+    hprintln!("AVANTENCORE");
+
+    let servo = Servo::new(0x28);
+    init(0x28, &mut tx, &mut delay);
+
+    let message = servo.stat();
+    hprintln!("AVANT");
+    send_message(message, &mut tx);
+    hprintln!("ICI");
+
+    // let serial = cx.resources.serial;
+    // let mut buf: [u8; 10] = [0;10];
+    // let mut i = 0;
+
+    let buf = singleton!(: [u8; 9] = [0; 9]).unwrap();
+
+    hprintln!("BRX");
+
+    let (_buf, _rx) = rx.read(buf).wait();
+    hprintln!("AFX");
+
+    hprintln!("{:?}", _buf);
+
+
+
+
+
 
     //
     // END OF INIT SERVOS
     //
 
 
+    delay.delay_ms(5000_u16);
+
     // Servo branche, ID = 240;
+    set_speed(0x28, 500, Rotation::Clockwise, &mut tx);
 
 
     loop {
-        test_read( &mut rx, &mut tx, &mut delay);
-        delay.delay_ms(100_u16);
+
+        // test_read2( &mut rx, &mut tx, &mut delay);
+        // delay.delay_ms(2000_u16);
+        hprintln!("Laaaa");
     }
 }
+
