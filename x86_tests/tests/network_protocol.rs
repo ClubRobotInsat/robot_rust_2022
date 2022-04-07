@@ -1,6 +1,6 @@
 
 #[cfg(test)]
-mod Network_protocol_tests {
+mod network_protocol_tests {
     use network_protocol::{MessageSender, Read, SendError, Write};
 
     struct Tx {}
@@ -8,7 +8,7 @@ mod Network_protocol_tests {
     impl Write for Tx {
         type Error = SendError;
 
-        fn write(&mut self, word: u8) -> Result<(), Self::Error> {
+        fn write(&mut self, _word: u8) -> Result<(), Self::Error> {
             Ok(())
         }
 
@@ -23,7 +23,7 @@ mod Network_protocol_tests {
         type Error = ();
 
         fn read(&mut self) -> Result<u8, Self::Error> {
-            return Ok(42);
+            Ok(42)
         }
     }
 
