@@ -2,6 +2,7 @@ use crate::{MAX_ID_LEN, MAX_ID_MESS_LEN, MAX_SEQ_NUMBER_LEN, MessageCreationErro
 
 /// This is only for definition and fields should never be accessed nor modified directly
 /// use the methods provided with the struct instead
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     id_dest: u8, // really a u4
     id_src: u8, // really a u4
@@ -38,6 +39,24 @@ impl Header {
         })
     }
 
+    /// Returns the correspondant header from a message
+    /// # Warning
+    /// If the message received was not well formatted the result of this function might be erroneous as there is no way to know it
+    pub fn new_from_binary_array(array: &[u8;2]) -> Header {
+        let id_dest:u8 = array[0] >> 4; // first 4 bits
+        let id_src:u8 = array[0] & 0x0F; // last 4 bits
+        let id_message:u8 = array[1] >> 5; // first 3 bits
+        let seq_number:u8 = (array[1] & 0b00011110) >> 1; //  4 bits
+        let is_ack:bool = (array[1] & 0x01) == 1; // last bit and we transform it into a bool
+
+        Header {
+            id_dest,
+            id_src,
+            is_ack,
+            id_message,
+            seq_number,
+        }
+    }
     pub fn get_id_dest(&self) -> u8 {
         self.id_dest
     }
@@ -53,4 +72,5 @@ impl Header {
     pub fn get_seq_number(&self) -> u8 {
         self.seq_number
     }
+
 }

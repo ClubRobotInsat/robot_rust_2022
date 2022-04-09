@@ -1,4 +1,6 @@
 extern crate alloc;
+
+use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 use alloc::vec;
 use crate::{BYTES_LEFT_IN_PACKAGE, MAX_ID_LEN, MessageCreationError, SendError, Write};
@@ -56,9 +58,21 @@ impl Message {
             let mut data:[u8; 6] = [0; 6];
             data[..6].clone_from_slice(&self.data[i..(6 + i)]);
             Packet::new(header,data).send(tx)?;
-
         }
-        Err(SendError::SendFailed) // err
+        // this means it was sent successfully but we don't know if it was received we need to check the acks
+        Ok(())
+    }
 
+    pub fn process_msg(&mut self, msg: Packet) {
+        self.ack_received[msg.header.get_seq_number() as usize] = true;
+    }
+
+    /// Return true if all ACK of the different packets have been received
+    pub fn all_ack_received(&self) -> bool {
+       self.ack_received
+            .iter()
+            .reduce(|accum, item| &false)
+            .unwrap()
+            .to_owned()
     }
 }

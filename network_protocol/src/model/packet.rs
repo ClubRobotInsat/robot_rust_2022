@@ -1,11 +1,13 @@
-use crate::{BYTES_LEFT_IN_PACKAGE, SendError, Write};
+use crate::{BYTES_LEFT_IN_PACKAGE, CAN_PACKET_SIZE, SendError, Write};
 use crate::model::header::Header;
 
 /// This is only for definition and fields should never be accessed nor modified directly
 /// use the methods provided with the struct instead
+///
+#[derive(Debug, Clone)]
 pub struct Packet {
-    header: Header,
-    payload: [u8; BYTES_LEFT_IN_PACKAGE as usize],
+    pub header: Header,
+    pub payload: [u8; BYTES_LEFT_IN_PACKAGE as usize],
 }
 
 impl Packet {
@@ -13,8 +15,14 @@ impl Packet {
         Packet { header, payload: data, }
     }
 
-    fn get_packet_as_binary_array(&self) -> [u8; 6] {
-        let mut packet = [0u8; 6];
+    pub fn new_from_binary_array(data: &[u8; CAN_PACKET_SIZE as usize]) -> Packet {
+        let header = Header::new_from_binary_array(data[0..2].try_into().unwrap());
+        let payload:[u8;6] = data[2..=CAN_PACKET_SIZE as usize].try_into().unwrap();
+        Packet { header, payload, }
+    }
+
+    pub(super) fn get_packet_as_binary_array(&self) -> [u8; CAN_PACKET_SIZE as usize] {
+        let mut packet = [0u8; CAN_PACKET_SIZE as usize];
         let id_dest_in_significant_bits = self.header.get_id_dest() << 4;
         let id_send_in_least_significant_bits = self.header.get_id_src();
         packet[0] = id_dest_in_significant_bits | id_send_in_least_significant_bits;
