@@ -36,16 +36,22 @@ use stm32f1xx_hal::{
 };
 use core::mem::MaybeUninit;
 use drs_0x01::Rotation::Clockwise;
+use stm32f1xx_hal::serial::RxDma1;
 
 use unwrap_infallible::UnwrapInfallible;
 //use stm32f1xx_hal::pac::ethernet_mac::macvlantr::VLANTC_W;
 
 // const x = ;
 const BUFFER_LEN: usize = 15;
-static mut BUFFER: &mut [u8; BUFFER_LEN] = &mut [0; BUFFER_LEN];
+static mut BUFFER_HEADER: &mut [u8; 3] = &mut [0; 3];
+
 static mut WIDX: usize = 0;
+static mut BUFFER: &mut [u8; BUFFER_LEN] = &mut [0; BUFFER_LEN];
+
 
 static mut RX: Option<Rx<USART1>> = None;
+static mut RXDMA : Option<RxDma1> = None;
+
 
 static mut RX_PIN : MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA10<Input<Floating>>> = MaybeUninit::uninit();
 static mut LED: MaybeUninit<stm32f1xx_hal::gpio::gpioc::PC13<Output<PushPull>>> =
@@ -66,20 +72,25 @@ static mut INT_COUNTER : u16 = 0;
 #[interrupt]
 unsafe fn USART1() {
     INT_COUNTER += 1;
+    let mut packet_size = 3;
     cortex_m::interrupt::free(|_| {
         if let Some(rx) = RX.as_mut() {
-            while rx.is_rx_not_empty() {
+            while rx.is_rx_not_empty() || WIDX < packet_size {
                 if let Ok(w)= (rx.read()){
                     BUFFER[WIDX] = w;
-                    WIDX += 1;
+                    if WIDX == 2 {
+                        packet_size = w  as usize;
+                    }
                     if WIDX >= BUFFER_LEN - 1 {
                         WIDX = 0;
                     }
 
+                    WIDX += 1;
                 }
 
                 rx.listen_idle();
             }
+
             if rx.is_idle() {
                 rx.unlisten_idle();
                 WIDX = 0;
@@ -87,6 +98,7 @@ unsafe fn USART1() {
         }
     })
 }
+
 
 // This marks the entrypoint of our application. The cortex_m_rt creates some
 // startup code before this, but we don't need to worry about this
@@ -157,6 +169,8 @@ fn main() -> ! {
     cortex_m::interrupt::free(|_| unsafe {
         RX.replace(rx);
     });
+
+
 
 
     // let mut delay = Delay::delay(cp.SYST, clocks_serial);
@@ -317,56 +331,6 @@ fn main() -> ! {
 
     }
 
-    fn receive_msg(rx: &mut stm32f1xx_hal::serial::Rx<stm32f1xx_hal::stm32::USART1>, buf: &mut [u8; 20]) -> usize
-    {
-        enum RxPhase {
-            Start,
-            Start2,
-            Length,
-            Data { len: usize, idx: usize },
-        }
-
-        let mut rx_phase = RxPhase::Start;
-
-        loop {
-            hprintln!("BOUCLE");
-
-            // Read the word that was just sent. Blocks until the read is complete.
-            let received = block!(rx.read()).unwrap();
-
-            // If the beginning of the packet.
-            if (received & 0x10) != 0 {
-                rx_phase = if received as u8 == 0xFF {
-                    RxPhase::Length
-                } else {
-                    RxPhase::Start
-                }
-            } else {
-                match rx_phase {
-                    RxPhase::Start => {}
-                    RxPhase::Start2 => {}
-
-                    RxPhase::Length => {
-                        if received == 0 {
-                            return 0;
-                        }
-                        rx_phase = RxPhase::Data {
-                            len: received as usize,
-                            idx: 0,
-                        };
-                    }
-
-                    RxPhase::Data { len, ref mut idx } => {
-                        buf[*idx] = received as u8;
-                        *idx += 1;
-                        if *idx == len {
-                            return len;
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     ///
     /// Send message in through tx
@@ -496,6 +460,16 @@ fn main() -> ! {
     }
 
     ///
+    /// Get temp
+    ///
+    fn get_temperature(id : u8, tx: &mut stm32f1xx_hal::serial::Tx<stm32f1xx_hal::stm32::USART1>) {
+        let servo = Servo::new(id);
+        let msg = servo.ram_request(ReadableRamAddr::Temperature);
+        send_message(msg, tx);
+    }
+
+
+    ///
     /// Get id of the servo in EEPROM
     ///
     fn get_id_eeprom(tx: &mut stm32f1xx_hal::serial::Tx<stm32f1xx_hal::stm32::USART1>, rx: &mut stm32f1xx_hal::serial::Rx<stm32f1xx_hal::stm32::USART1>) -> u8 {
@@ -587,6 +561,8 @@ fn main() -> ! {
 
 
     loop {
+        hprintln!("Stat : ");
+        delay.delay_ms(200_u16);
 
         // set_speed(0xFE, 500, Clockwise, &mut tx);
         // test_read2( &mut rx, &mut tx, &mut delay);
@@ -603,8 +579,16 @@ fn main() -> ! {
         }
 
         // delay.delay_ms(5000_u16);
-        hprintln!("BOUCLE");
+        hprintln!("Temp : ");
 
+        get_temperature(0x28, &mut tx);
+        cortex_m::asm::wfi(); // important
+
+        unsafe {
+            hprintln!("{:?}", BUFFER);
+            hprintln!("{:?}", INT_COUNTER);
+
+        }
     }
 }
 
