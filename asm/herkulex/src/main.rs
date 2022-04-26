@@ -5,8 +5,9 @@
 #![no_main]
 
 // mod modules;
-
+mod tests;
 use core::convert::Infallible;
+
 // use core::ptr::read;
 use cortex_m_rt::entry; // The runtime
 //use embedded_hal::digital::v2::OutputPin; // the `set_high/low`function
@@ -30,12 +31,62 @@ use stm32f1xx_hal::{
     pac::interrupt,
     pac::USART1,
     prelude::*,
+    gpio::*,
     serial::{self, Config, Serial, Event, Rx, Tx},
 };
+use core::mem::MaybeUninit;
+use drs_0x01::Rotation::Clockwise;
+
 use unwrap_infallible::UnwrapInfallible;
 //use stm32f1xx_hal::pac::ethernet_mac::macvlantr::VLANTC_W;
 
 // const x = ;
+const BUFFER_LEN: usize = 15;
+static mut BUFFER: &mut [u8; BUFFER_LEN] = &mut [0; BUFFER_LEN];
+static mut WIDX: usize = 0;
+
+static mut RX: Option<Rx<USART1>> = None;
+
+static mut RX_PIN : MaybeUninit<stm32f1xx_hal::gpio::gpioa::PA10<Input<Floating>>> = MaybeUninit::uninit();
+static mut LED: MaybeUninit<stm32f1xx_hal::gpio::gpioc::PC13<Output<PushPull>>> =
+    MaybeUninit::uninit();
+
+static mut INT_COUNTER : u16 = 0;
+
+
+/*
+
+    Lire header with DMA
+    Lire longueur du paquet
+    Changer longueur dma
+    Lire paquet
+    Remettre longueur dma a 3
+ */
+
+#[interrupt]
+unsafe fn USART1() {
+    INT_COUNTER += 1;
+    cortex_m::interrupt::free(|_| {
+        if let Some(rx) = RX.as_mut() {
+            while rx.is_rx_not_empty() {
+                if let Ok(w)= (rx.read()){
+                    BUFFER[WIDX] = w;
+                    WIDX += 1;
+                    if WIDX >= BUFFER_LEN - 1 {
+                        WIDX = 0;
+                    }
+
+                }
+
+                rx.listen_idle();
+            }
+            if rx.is_idle() {
+                rx.unlisten_idle();
+                WIDX = 0;
+            }
+        }
+    })
+}
 
 // This marks the entrypoint of our application. The cortex_m_rt creates some
 // startup code before this, but we don't need to worry about this
@@ -45,10 +96,11 @@ fn main() -> ! {
     // CONFIGURATION STM32
     //
 
+    tests::test1();
     // Get handles to the hardware objects. These functions can only be called
     // once, so that the borrowchecker can ensure you don't reconfigure
     // something by accident.
-    let dp: Peripherals = pac::Peripherals::take().unwrap();
+    let mut dp: Peripherals = pac::Peripherals::take().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
 
     // GPIO pins on the STM32F1 must be driven by the APB2 peripheral clock.
@@ -67,14 +119,22 @@ fn main() -> ! {
     let mut flash = dp.FLASH.constrain();
     let mut gpioa = dp.GPIOA.split();
     let mut afio = dp.AFIO.constrain();
-    let channels = dp.DMA1.split();
 
     // let sys_clock = rcc.cfgr.sysclk(8.mhz()).freeze(&mut flash.acr);
     let clocks_serial = rcc.cfgr.freeze(&mut flash.acr);
 
     // USART1 on Pins A9 and A10
     let pin_tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
-    let pin_rx = gpioa.pa10;
+    // let pin_rx = gpioa.pa10;
+
+    // let pin_rx = unsafe { &mut *RX_PIN.as_mut_ptr() };
+    let mut pin_rx = gpioa.pa10;
+
+    let channels = dp.DMA1.split();
+
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::USART1);
+    }
 
     let serial = Serial::usart1(
         dp.USART1,
@@ -87,8 +147,16 @@ fn main() -> ! {
 
     // separate into tx and rx channels
     let (mut tx, mut rx) = serial.split();
-    let mut rx = rx.with_dma(channels.5);
 
+    // dma1.5.listen();
+
+
+    rx.listen();
+    rx.listen_idle();
+
+    cortex_m::interrupt::free(|_| unsafe {
+        RX.replace(rx);
+    });
 
 
     // let mut delay = Delay::delay(cp.SYST, clocks_serial);
@@ -97,24 +165,10 @@ fn main() -> ! {
 
 
 
+
+
     //
     // END OF CONFIGURATION
-    //
-
-
-    //
-    // TO DO LIST
-    // X Set ID RAM
-    // X Set ID EEPROM
-    // X Set ID EEPROM with Paul Library
-    // X Get ID RAM
-    // X Get ID EEPROM
-    // X Make functions
-    // @TODO Add interrupts instead of blocking with rx
-    // @TODO Generalize set/get for other properties
-    // @TODO Test this module
-    // @TODO Make documentation
-    // @TODO Make it modular to use any TX/RX
     //
 
 
@@ -169,7 +223,7 @@ fn main() -> ! {
     }
 
     fn test_ids(tx: &mut stm32f1xx_hal::serial::Tx<stm32f1xx_hal::stm32::USART1>, delay: &mut stm32f1xx_hal::timer::SysDelay) {
-        for i in 238..242 {
+        for i in 0x25..0x30 {
             hprintln!("begin id: {:?}", i);
             set_speed(i, 1000, Rotation::Clockwise, tx);
             delay.delay_ms(300_u16);
@@ -368,7 +422,7 @@ fn main() -> ! {
 
         //? Reboot the servo needed ?
         send_message(servo.reboot(), tx);
-        delay.delay_ms(1_00_u16);
+        delay.delay_ms(2_00_u16);
 
         // Clear errors
         send_message(servo.clear_errors(), tx);
@@ -508,29 +562,15 @@ fn main() -> ! {
     // change_id_eeprom(servo.id(), new_id, &mut tx, &mut delay);
 
 
-    delay.delay_ms(5000_u16);
+    // delay.delay_ms(5000_u16);
     hprintln!("AVANTENCORE");
 
     let servo = Servo::new(0x28);
-    init(0x28, &mut tx, &mut delay);
+    init(0xFE, &mut tx, &mut delay);
+    delay.delay_ms(1000_u16);
 
-    let message = servo.stat();
-    hprintln!("AVANT");
-    send_message(message, &mut tx);
-    hprintln!("ICI");
-
-    // let serial = cx.resources.serial;
-    // let mut buf: [u8; 10] = [0;10];
-    // let mut i = 0;
-
-    let buf = singleton!(: [u8; 9] = [0; 9]).unwrap();
-
-    hprintln!("BRX");
-
-    let (_buf, _rx) = rx.read(buf).wait();
-    hprintln!("AFX");
-
-    hprintln!("{:?}", _buf);
+    // let message = servo.stat();
+    // send_message(message, &mut tx);
 
 
 
@@ -542,17 +582,29 @@ fn main() -> ! {
     //
 
 
-    delay.delay_ms(5000_u16);
-
     // Servo branche, ID = 240;
-    set_speed(0x28, 500, Rotation::Clockwise, &mut tx);
+    // set_speed(0x28, 500, Rotation::Clockwise, &mut tx);
 
 
     loop {
 
+        // set_speed(0xFE, 500, Clockwise, &mut tx);
         // test_read2( &mut rx, &mut tx, &mut delay);
-        // delay.delay_ms(2000_u16);
-        hprintln!("Laaaa");
+        // test_ids(&mut tx, &mut delay);
+        let message = servo.stat();
+        send_message(message, &mut tx);
+
+        cortex_m::asm::wfi(); // important
+
+        unsafe {
+            hprintln!("{:?}", BUFFER);
+            hprintln!("{:?}", INT_COUNTER);
+
+        }
+
+        // delay.delay_ms(5000_u16);
+        hprintln!("BOUCLE");
+
     }
 }
 
