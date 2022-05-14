@@ -10,6 +10,7 @@ use crate::model::protocol_constants::*;
 
 
 /// Defines a struct which can receive data ( RX )
+// todo Word might not be u8
 pub trait Read<Word = u8> {
     type Error;
     fn read(&mut self) -> Result<Word, Self::Error>;
@@ -43,7 +44,8 @@ pub struct MessageSender<Tx: Write, Rx: Read> {
     rx: Rx,
     id_mess_counter: u8, // really a u3
     message_queue: [Option<Message>; MAX_ID_MESS_LEN as usize],
-    received_buffer: Vec<Message> // todo not really the best type
+    received_buffer: Vec<Message>, // todo not really the best type
+    uncompleted_messages: Vec<Message>,
 }
 
 impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
@@ -52,7 +54,7 @@ impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
             return Err(MessageCreationError::ParametersTooLong);
         }
         const INIT : Option<Message> = None; // to tell the compiler that it is a constant value known at compile time
-        Ok(MessageSender { host_id, tx, rx, id_mess_counter: 0, message_queue: [INIT;7], received_buffer: Vec::new() })
+        Ok(MessageSender { host_id, tx, rx, id_mess_counter: 0, message_queue: [INIT;7], received_buffer: Vec::new(), uncompleted_messages: Vec::new() })
     }
 
     pub fn send_message(&mut self,id_dest: u8, data: Vec<u8>) -> Result<(),MessageCreationError> {
@@ -88,14 +90,14 @@ impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
                     self.message_queue[msg_id] = None;
                 }
             } else { // not ack
-                todo!();
+
             }
 
         }
     }
 
     pub fn add_received_msg_to_buffer(&mut self, msg: Message) {
-        todo!();
+        self.received_buffer.push(msg);
     }
 
     pub fn get_host_id(&self) -> u8 {

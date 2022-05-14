@@ -32,6 +32,7 @@ impl Packet {
         let is_ack = self.header.get_is_ack() ;
         packet[1] = id_mess_in_significant_bit | seq_number | is_ack as u8;
 
+
         packet[2..].copy_from_slice(&self.payload);
         packet
     }
