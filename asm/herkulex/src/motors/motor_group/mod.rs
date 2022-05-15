@@ -2,7 +2,7 @@ use core::borrow::BorrowMut;
 use core::cell::{RefCell, RefMut};
 use embedded_hal::serial::{Read, Write};
 use stm32f1xx_hal::serial::{Rx, Tx};
-use stm32f1xx_hal::stm32::USART1;
+use stm32f1xx_hal::{pac::USART1};
 use crate::motors::motor_group::motor::Motor;
 mod motor;
 
