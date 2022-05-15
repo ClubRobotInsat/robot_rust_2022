@@ -3,19 +3,21 @@ use core::ops::Deref;
 use drs_0x01::builder::HerkulexMessage;
 use embedded_hal::serial::{Read, Write};
 use nb::block;
+use stm32f1xx_hal::serial::{Rx, Tx};
+use stm32f1xx_hal::stm32::USART1;
 
 const BUFF_SIZE : usize = 20;
 
-struct Communication<'a, Tx: Write<u8>, Rx : Read<u8>> {
-    tx: &'a mut Tx,
-    rx: &'a mut Rx,
-    RX : Option<Rx>,
+struct Communication<'a,> {
+    tx: &'a mut Tx<USART1, u8>,
+    rx: &'a mut Rx<USART1, u8>,
+    RX : Option<Rx<USART1, u8>>,
     rx_buffer: [u8; BUFF_SIZE],
 }
 
-impl <'a, Tx: Write<u8>, Rx : Read<u8>> Communication<'a, Tx, Rx>  {
+impl <'a> Communication<'a>  {
 
-    pub fn new(tx : &'a mut Tx, rx : &'a mut Rx) -> Communication<'a, Tx, Rx> {
+    pub fn new(tx : &'a mut Tx<USART1, u8>, rx : &'a mut Rx<USART1, u8>) -> Communication<'a> {
 
         let c = Communication{
             tx: tx,

@@ -1,6 +1,8 @@
 use core::borrow::BorrowMut;
 use core::cell::{RefCell, RefMut};
 use embedded_hal::serial::{Read, Write};
+use stm32f1xx_hal::serial::{Rx, Tx};
+use stm32f1xx_hal::stm32::USART1;
 use crate::motors::motor_group::motor::Motor;
 mod motor;
 
@@ -8,14 +10,14 @@ const GROUP_SIZE : usize = 20;
 
 // const INIT_MOTOR : Option<RefCell<Motor>> = None;
 
-pub struct MotorGroup<'a, Tx: Write<u8>, Rx : Read<u8>> {
-    tx : &'a mut Tx,
-    rx : &'a mut Rx,
-    motors : [Option<RefCell<Motor<'a, Tx,Rx>>>; GROUP_SIZE]
+pub struct MotorGroup<'a> {
+    tx : &'a mut Tx<USART1, u8>,
+    rx : &'a mut Rx<USART1, u8>,
+    motors : [Option<RefCell<Motor<'a>>>; GROUP_SIZE]
 }
 
-impl <'a, Tx: Write<u8>, Rx : Read<u8>> MotorGroup<'a, Tx, Rx> {
-    pub fn new(tx : &'a mut Tx, rx : &'a mut Rx) -> MotorGroup<'a, Tx,Rx>{
+impl <'a> MotorGroup<'a> {
+    pub fn new(tx : &'a mut Tx<USART1, u8>, rx : &'a mut Rx<USART1, u8>) -> MotorGroup<'a>{
         MotorGroup {
             tx : tx,
             rx : rx,
@@ -24,7 +26,7 @@ impl <'a, Tx: Write<u8>, Rx : Read<u8>> MotorGroup<'a, Tx, Rx> {
         }
     }
 
-    pub fn new_motor(&mut self, id : u8) -> RefMut<'a, Motor<Tx, Rx>> {
+    pub fn new_motor(&mut self, id : u8) -> RefMut<'a, Motor> {
         let mut i = 0;
 
         // Iteration throught groups and stop on the first empty cell to create a new motor
