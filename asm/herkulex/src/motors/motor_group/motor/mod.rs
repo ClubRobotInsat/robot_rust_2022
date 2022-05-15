@@ -1,6 +1,5 @@
 use drs_0x01::builder::HerkulexMessage;
 use embedded_hal::serial::{Read, Write};
-use nb::block;
 use unwrap_infallible::UnwrapInfallible;
 
 

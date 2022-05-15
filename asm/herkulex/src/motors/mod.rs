@@ -2,14 +2,13 @@ use core::borrow::BorrowMut;
 use core::cell::{Ref, RefCell, RefMut};
 use core::mem::MaybeUninit;
 use embedded_hal::serial::{Read, Write};
-use stm32f1xx_hal::timer::SysDelay;
 
 use crate::motors::motor_group::MotorGroup;
 
 mod motor_group;
+mod communication;
 
 // Size must be inferior to 32
-const BUFF_SIZE : usize = 20;
 const GROUP_SIZE : usize = 20;
 
 // const INIT_MOTORGROUP : Option<RefCell<MotorGroup>> = None;
@@ -17,21 +16,17 @@ const GROUP_SIZE : usize = 20;
 struct Motors<'a, Tx: Write<u8>, Rx : Read<u8>> {
     tx: &'a mut Tx,
     rx: &'a mut Rx,
-    delay: SysDelay,
-    rx_buffer: [Option<u8>; BUFF_SIZE],
     groups: [Option<RefCell<MotorGroup<'a, Tx, Rx>>>; GROUP_SIZE]
 }
 
 impl <'a, Tx: Write<u8>, Rx : Read<u8>> Motors<'a, Tx, Rx> {
 
 
-    pub fn new(tx : &'a mut Tx, rx : &'a mut Rx, delay : SysDelay) -> Motors<'a, Tx, Rx> {
+    pub fn new(tx : &'a mut Tx, rx : &'a mut Rx) -> Motors<'a, Tx, Rx> {
 
         Motors{
             tx: (tx),
             rx: (rx),
-            delay: (delay),
-            rx_buffer: [None; BUFF_SIZE],
             groups : Default::default()
             // groups: [INIT_MOTORGROUP; GROUP_SIZE]
         }
