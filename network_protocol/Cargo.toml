@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 embedded-hal = "0.2.7"
+heapless = "0.7.13"
