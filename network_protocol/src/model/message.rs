@@ -45,7 +45,7 @@ impl Message {
             self.fill_data_with_zeros(remainder)
         }
         // we can create an exact number of messages
-        let seq_numbers = (0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
+        let seq_numbers = 0..(self.data.len()/BYTES_LEFT_IN_PACKAGE as usize);  //(0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
         for i in seq_numbers {
             // if the packet has already been received by the other STM dont' resend it
             if self.ack_received[i] { continue }
@@ -57,6 +57,7 @@ impl Message {
                 self.id,
                 u8::try_from(i).unwrap() // can't fail as the message is at max 90 bytes long which fits in a u8
             ).unwrap(); // we already checked the validity of the data in the new function of message so it can't crash
+
             let mut data:[u8; BYTES_LEFT_IN_PACKAGE as usize] = [0; BYTES_LEFT_IN_PACKAGE as usize];
             // on decale chaque fois de la taille du message (6 bytes)
             data[..BYTES_LEFT_IN_PACKAGE as usize].clone_from_slice(&self.data[(i*BYTES_LEFT_IN_PACKAGE as usize)..((BYTES_LEFT_IN_PACKAGE as usize + i*BYTES_LEFT_IN_PACKAGE as usize) as usize)]);
