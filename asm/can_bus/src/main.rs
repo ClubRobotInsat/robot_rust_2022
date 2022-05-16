@@ -11,8 +11,8 @@ use bxcan::{Frame, StandardId};
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
 use nb::block;
-use stm32f1xx_hal::{can::Can, pac, prelude::*};
 use stm32f1xx_hal::timer::Timer;
+use stm32f1xx_hal::{can::Can, pac, prelude::*};
 
 #[entry]
 fn main() -> ! {
@@ -31,9 +31,9 @@ fn main() -> ! {
 
     let mut can1 = {
         #[cfg(not(feature = "connectivity"))]
-            let can = Can::new(dp.CAN1, dp.USB);
+        let can = Can::new(dp.CAN1, dp.USB);
         #[cfg(feature = "connectivity")]
-            let can = Can::new(dp.CAN1);
+        let can = Can::new(dp.CAN1);
 
         let mut gpioa = dp.GPIOA.split();
         let rx = gpioa.pa11.into_floating_input(&mut gpioa.crh);
@@ -54,7 +54,7 @@ fn main() -> ! {
     filters.enable_bank(0, Mask32::accept_all());
 
     #[cfg(feature = "connectivity")]
-        let _can2 = {
+    let _can2 = {
         let can = Can::new(dp.CAN2);
 
         let mut gpiob = dp.GPIOB.split();
@@ -97,12 +97,15 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
     //Send data
-    let data = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let data_off = Frame::new_data(StandardId::new(1_16).unwrap(), [0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
+    let data = Frame::new_data(
+        StandardId::new(1_u16).unwrap(),
+        [1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8],
+    );
+    let data_off = Frame::new_data(
+        StandardId::new(1_16).unwrap(),
+        [0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8],
+    );
     hprintln!("starting...");
-
-
-
 
     // attend acquittement
 
@@ -118,15 +121,14 @@ fn main() -> ! {
                 //Wait 1 second
                 block!(timer.wait()).unwrap();
         */
-//Not working :(
+        //Not working :(
 
         match block!(can.receive()) {
             Ok(v) => {
                 if v.data().unwrap().as_ref() == (data.data().unwrap().as_ref()) {
                     led.set_high();
                     hprintln!("HIGH");
-                }
-                else if v.data().unwrap().as_ref() == [0,0,0,0,0,0,0,0] {
+                } else if v.data().unwrap().as_ref() == [0, 0, 0, 0, 0, 0, 0, 0] {
                     led.set_low();
                     hprintln!("LOW");
                 } else {
@@ -138,7 +140,6 @@ fn main() -> ! {
             }
         }
     }
-
 
     //Receive Data and print
     /*
@@ -152,5 +153,4 @@ fn main() -> ! {
         };
         hprintln!("loop");
     }*/
-
 }

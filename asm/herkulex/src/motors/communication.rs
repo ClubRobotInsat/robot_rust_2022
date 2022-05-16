@@ -1,38 +1,30 @@
-use core::borrow::{Borrow, BorrowMut};
-use core::ops::Deref;
 use drs_0x01::builder::HerkulexMessage;
 use embedded_hal::serial::{Read, Write};
 use nb::block;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::serial::{Rx, Tx};
-use stm32f1xx_hal::{
-    pac::interrupt,
-    pac::USART1
-};
+use stm32f1xx_hal::{pac::interrupt, pac::USART1};
 
-const BUFF_SIZE : usize = 20;
-static mut BUFF_INDEX : usize = 0;
-static  mut BUFFER: &mut [u8; BUFF_SIZE] = &mut [0; BUFF_SIZE];
+const BUFF_SIZE: usize = 20;
+static mut BUFF_INDEX: usize = 0;
+static mut BUFFER: &mut [u8; BUFF_SIZE] = &mut [0; BUFF_SIZE];
 
 //@TODO Ajouter mutex
 static mut RX: Option<Rx<USART1>> = None;
 
-pub struct Communication<'a,> {
+pub struct Communication<'a> {
     tx: &'a mut Tx<USART1, u8>,
 }
 
 pub trait HerkulexCommunication {
-    fn send_message(&mut self, msg : HerkulexMessage);
+    fn send_message(&mut self, msg: HerkulexMessage);
 
     fn read_message(&self) -> [u8; BUFF_SIZE];
-
 }
 
-impl <'a> Communication<'a> {
+impl<'a> Communication<'a> {
     pub fn new(tx: &'a mut Tx<USART1, u8>, mut rx: Rx<USART1, u8>) -> Communication<'a> {
-        let c = Communication {
-            tx: tx,
-        };
+        let c = Communication { tx };
 
         unsafe {
             pac::NVIC::unmask(pac::Interrupt::USART1);
@@ -46,11 +38,11 @@ impl <'a> Communication<'a> {
         c
     }
 }
-impl<'a> HerkulexCommunication for Communication<'a>{
-    fn send_message(&mut self, msg : HerkulexMessage) {
+impl<'a> HerkulexCommunication for Communication<'a> {
+    fn send_message(&mut self, msg: HerkulexMessage) {
         for b in &msg {
-            block!(self.tx.write(*b)); // Why no unwrap ?
-            // block!(self.tx.write(*b)).unwrap_infallible();
+            block!(self.tx.write(*b)).unwrap(); // Why no unwrap ?
+                                                // block!(self.tx.write(*b)).unwrap_infallible();
         }
     }
 
@@ -65,9 +57,6 @@ impl<'a> HerkulexCommunication for Communication<'a>{
         }
         received_message
     }
-
-
-
 }
 #[interrupt]
 fn USART1() {
@@ -76,21 +65,19 @@ fn USART1() {
     // When a packet is received, there is at least 3 bytes : header, header, packet size
     let mut packet_size = 3;
 
-    unsafe  {
+    unsafe {
         cortex_m::interrupt::free(|_| {
             if let Some(rx) = RX.as_mut() {
-
                 // If it received a packet and we have not read it entirely yet
                 while rx.is_rx_not_empty() || BUFF_INDEX < packet_size {
                     // Read the byte
-                    if let Ok(w)= (rx.read()){
-
+                    if let Ok(w) = rx.read() {
                         BUFFER[BUFF_INDEX] = w; // Fill the buffer
 
                         // If we read the packet size in the received packet
                         // it updates our packet_size to read all bytes from the received packet
                         if BUFF_INDEX == 2 {
-                            packet_size = w  as usize;
+                            packet_size = w as usize;
                         }
 
                         // If the buffer is full, it rewrites at the beginning
@@ -111,6 +98,5 @@ fn USART1() {
                 }
             }
         })
-
     }
 }
