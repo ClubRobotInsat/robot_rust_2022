@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 use alloc::vec;
 use crate::{BYTES_LEFT_IN_PACKAGE, MAX_ID_LEN, MessageCreationError, SendError, Write};
@@ -14,8 +13,8 @@ pub struct Message {
     id: u8,
     id_dest: u8,
     id_src: u8,
-    data: Vec<u8>,
-    ack_received: Vec<bool>
+    pub data: Vec<u8>,
+    pub ack_received: Vec<bool>
 }
 
 impl Message {
@@ -26,11 +25,11 @@ impl Message {
         if id_dest > MAX_ID_LEN || id_src > MAX_ID_LEN {
             return Err(MessageCreationError::ParametersTooLong);
         }
-        if data.len() > (BYTES_LEFT_IN_PACKAGE * MAX_SEQ_NUMBER_LEN) as usize {
+        if data.len()/BYTES_LEFT_IN_PACKAGE as usize > (BYTES_LEFT_IN_PACKAGE * MAX_SEQ_NUMBER_LEN) as usize {
             return Err(MessageCreationError::MessageTooLong)
         }
 
-        let data_len = data.len();
+        let data_len = data.len()/BYTES_LEFT_IN_PACKAGE as usize;
         Ok(Message { id, id_dest, id_src, data, ack_received: vec![false; data_len] })
     }
 
@@ -48,6 +47,9 @@ impl Message {
         // we can create an exact number of messages
         let seq_numbers = (0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
         for i in seq_numbers {
+            // if the packet has already been received by the other STM dont' resend it
+            if self.ack_received[i] { continue }
+
             let header = Header::new(
                 self.id_dest,
                 self.id_src,
@@ -55,8 +57,9 @@ impl Message {
                 self.id,
                 u8::try_from(i).unwrap() // can't fail as the message is at max 90 bytes long which fits in a u8
             ).unwrap(); // we already checked the validity of the data in the new function of message so it can't crash
-            let mut data:[u8; 6] = [0; 6];
-            data[..6].clone_from_slice(&self.data[i..(6 + i)]);
+            let mut data:[u8; BYTES_LEFT_IN_PACKAGE as usize] = [0; BYTES_LEFT_IN_PACKAGE as usize];
+            // on decale chaque fois de la taille du message (6 bytes)
+            data[..BYTES_LEFT_IN_PACKAGE as usize].clone_from_slice(&self.data[(i*BYTES_LEFT_IN_PACKAGE as usize)..((BYTES_LEFT_IN_PACKAGE as usize + i*BYTES_LEFT_IN_PACKAGE as usize) as usize)]);
             Packet::new(header,data).send(tx)?;
         }
         // this means it was sent successfully but we don't know if it was received we need to check the acks
@@ -70,9 +73,9 @@ impl Message {
     /// Return true if all ACK of the different packets have been received
     pub fn all_ack_received(&self) -> bool {
        self.ack_received
-            .iter()
-            .reduce(|accum, item| &false)
-            .unwrap()
-            .to_owned()
+           .clone()
+           .into_iter()
+           .reduce(|accum, item| accum && item)
+           .unwrap()
     }
 }
