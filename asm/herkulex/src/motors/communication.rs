@@ -14,17 +14,23 @@ const BUFF_SIZE : usize = 20;
 static mut BUFF_INDEX : usize = 0;
 static  mut BUFFER: &mut [u8; BUFF_SIZE] = &mut [0; BUFF_SIZE];
 
+//@TODO Ajouter mutex
 static mut RX: Option<Rx<USART1>> = None;
 
-struct Communication<'a,> {
+pub struct Communication<'a,> {
     tx: &'a mut Tx<USART1, u8>,
 }
 
-impl <'a> Communication<'a>  {
+pub trait HerkulexCommunication {
+    fn send_message(&mut self, msg : HerkulexMessage);
 
-    pub fn new(tx : &'a mut Tx<USART1, u8>, mut rx : Rx<USART1, u8>) -> Communication<'a> {
+    fn read_message(&self) -> [u8; BUFF_SIZE];
 
-        let mut c = Communication{
+}
+
+impl <'a> Communication<'a> {
+    pub fn new(tx: &'a mut Tx<USART1, u8>, mut rx: Rx<USART1, u8>) -> Communication<'a> {
+        let c = Communication {
             tx: tx,
         };
 
@@ -39,15 +45,16 @@ impl <'a> Communication<'a>  {
         });
         c
     }
-
-    fn send_message(self, msg : HerkulexMessage) {
+}
+impl<'a> HerkulexCommunication for Communication<'a>{
+    fn send_message(&mut self, msg : HerkulexMessage) {
         for b in &msg {
             block!(self.tx.write(*b)); // Why no unwrap ?
             // block!(self.tx.write(*b)).unwrap_infallible();
         }
     }
 
-    fn read_message(self) -> [u8; BUFF_SIZE] {
+    fn read_message(&self) -> [u8; BUFF_SIZE] {
         cortex_m::asm::wfi();
 
         let mut received_message: [u8; BUFF_SIZE] = [0; BUFF_SIZE];
