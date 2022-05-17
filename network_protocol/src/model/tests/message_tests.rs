@@ -44,20 +44,21 @@ fn single_packet_message_creation() {
 #[test]
 fn multiple_packet_message_creation() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap();
+    let mut sender = Message::new(2, 3, 4, vec![1,2,3,4,5,6,7,8,9,10,11,12]).unwrap();
     sender.send(&mut tx).unwrap();
 
+    println!("ldkasvjblda");
     assert_eq!(tx.buff, Packet::new(
         Header::new(3, 4, false, 2, 1)
             .unwrap(),
-        [6,5,4,3,2,1])
+        [1,2,3,4,5,6])
         .get_packet_as_binary_array()
         .into_iter()
         .chain(
         Packet::new(
             Header::new(3, 4, false, 2, 0)
                 .unwrap(),
-            [1, 2, 3, 4, 5, 6])
+            [7,8,9,10,11,12])
             .get_packet_as_binary_array()
             .into_iter()
         ).collect::<Vec<u8>>()
@@ -68,17 +69,17 @@ fn multiple_packet_message_creation() {
 #[test]
 fn send_multiple_times_before_ack() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap();
+    let mut sender = Message::new(2, 3, 4, vec![1,2,3,4,5,6,7,8,9,10,11,12]).unwrap();
     sender.send(&mut tx).unwrap();
     sender.send(&mut tx).unwrap();
     let packet1 = Packet::new(
         Header::new(3, 4, false, 2, 1)
             .unwrap(),
-        [6,5,4,3,2,1]);
+        [1,2,3,4,5,6]);
     let packet2 = Packet::new(
         Header::new(3, 4, false, 2, 0)
             .unwrap(),
-        [1, 2, 3, 4, 5, 6]);
+        [7, 8, 9, 10, 11, 12]);
 
     assert_eq!(tx.buff,packet1
         .get_packet_as_binary_array()
@@ -121,7 +122,7 @@ fn receive_only_one_ack() {
     sender.send(&mut tx).unwrap();
 
     assert_eq!(tx.buff,Packet::new(
-        Header::new(3, 4, false, 2, 0)
+        Header::new(3, 4, false, 2, 1)
             .unwrap(),
         [6,5,4,3,2,1])
         .get_packet_as_binary_array())

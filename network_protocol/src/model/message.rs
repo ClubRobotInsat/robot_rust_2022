@@ -44,8 +44,9 @@ impl Message {
         if  remainder == 0 { // add 0 to the end of the message
             self.fill_data_with_zeros(remainder)
         }
+        let max_seq_num = self.data.len()/BYTES_LEFT_IN_PACKAGE as usize;
         // we can create an exact number of messages
-        let seq_numbers = 0..(self.data.len()/BYTES_LEFT_IN_PACKAGE as usize);  //(0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
+        let seq_numbers = 0..(max_seq_num as usize);  //(0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
         for i in seq_numbers {
             // if the packet has already been received by the other STM dont' resend it
             if self.ack_received[i] { continue }
@@ -55,7 +56,7 @@ impl Message {
                 self.id_src,
                 false,
                 self.id,
-                u8::try_from(i).unwrap() // can't fail as the message is at max 90 bytes long which fits in a u8
+                u8::try_from(max_seq_num -1).unwrap() - u8::try_from(i).unwrap() // can't fail as the message is at max 90 bytes long which fits in a u8
             ).unwrap(); // we already checked the validity of the data in the new function of message so it can't crash
 
             let mut data:[u8; BYTES_LEFT_IN_PACKAGE as usize] = [0; BYTES_LEFT_IN_PACKAGE as usize];
