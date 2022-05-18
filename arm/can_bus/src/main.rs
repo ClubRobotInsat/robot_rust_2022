@@ -13,6 +13,7 @@ use cortex_m_semihosting::hprintln;
 use nb::block;
 use stm32f1xx_hal::{can::Can, pac, prelude::*};
 use stm32f1xx_hal::timer::Timer;
+use network_protocol;
 
 #[entry]
 fn main() -> ! {

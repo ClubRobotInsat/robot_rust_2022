@@ -2,12 +2,12 @@
 
 pub mod model;
 
-extern crate alloc;
-use alloc::vec::Vec;
+use heapless::Vec;
 use crate::model::message::Message;
 use crate::model::packet::Packet;
 use crate::model::protocol_constants::*;
 
+pub const BUFFER_SIZE: usize = 110; // not optimised at all but as we can send 96 bytes at max + 7 * 2 at least I am sure its enough
 
 /// Defines a struct which can receive data ( RX )
 // todo Word might not be u8
@@ -44,8 +44,8 @@ pub struct MessageSender<Tx: Write, Rx: Read> {
     rx: Rx,
     id_mess_counter: u8, // really a u3
     message_queue: [Option<Message>; MAX_ID_MESS_LEN as usize],
-    received_buffer: Vec<Message>, // todo not really the best type
-    uncompleted_messages: Vec<Message>,
+    received_buffer: Vec<Message, BUFFER_SIZE>, // todo not really the best type
+    uncompleted_messages: Vec<Message, BUFFER_SIZE>,
 }
 
 impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
@@ -57,7 +57,7 @@ impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
         Ok(MessageSender { host_id, tx, rx, id_mess_counter: 0, message_queue: [INIT;7], received_buffer: Vec::new(), uncompleted_messages: Vec::new() })
     }
 
-    pub fn send_message(&mut self,id_dest: u8, data: Vec<u8>) -> Result<(),MessageCreationError> {
+    pub fn send_message(&mut self,id_dest: u8, data: Vec<u8, BUFFER_SIZE>) -> Result<(),MessageCreationError> {
         if id_dest > MAX_ID_LEN {
             return Err(MessageCreationError::ParametersTooLong);
         }
@@ -97,7 +97,7 @@ impl <Tx: Write,Rx: Read> MessageSender<Tx,Rx> {
     }
 
     pub fn add_received_msg_to_buffer(&mut self, msg: Message) {
-        self.received_buffer.push(msg);
+        self.received_buffer.push(msg).expect("Too many messages were send buffer overflowed");
     }
 
     pub fn get_host_id(&self) -> u8 {

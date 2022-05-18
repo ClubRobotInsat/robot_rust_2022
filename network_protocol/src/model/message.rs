@@ -1,24 +1,22 @@
-extern crate alloc;
-
-use alloc::vec::Vec;
-use alloc::vec;
-use crate::{BYTES_LEFT_IN_PACKAGE, MAX_ID_LEN, MessageCreationError, SendError, Write};
+use heapless::Vec;
+use crate::{BUFFER_SIZE, BYTES_LEFT_IN_PACKAGE, MAX_ID_LEN, MessageCreationError, SendError, Write};
 use crate::model::header::Header;
 use crate::model::packet::Packet;
 use crate::model::protocol_constants::*;
 
 /// maximum numbers of packets to send of a single message limited by the size of the sequence number
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Message {
     id: u8,
     id_dest: u8,
     id_src: u8,
-    pub data: Vec<u8>,
-    pub ack_received: Vec<bool>
+    pub data: Vec<u8, BUFFER_SIZE>,
+    pub ack_received: Vec<bool, BUFFER_SIZE>
 }
 
 impl Message {
-    pub fn new(id: u8, id_dest: u8, id_src: u8, data: Vec<u8>) -> Result<Message,MessageCreationError> {
+    pub fn new(id: u8, id_dest: u8, id_src: u8, data: Vec<u8, BUFFER_SIZE>) -> Result<Message,MessageCreationError> {
         if id_dest == id_src {
             return Err(MessageCreationError::SrcAndDestCanNotBeEqual);
         }
@@ -30,12 +28,18 @@ impl Message {
         }
 
         let data_len = data.len()/BYTES_LEFT_IN_PACKAGE as usize;
-        Ok(Message { id, id_dest, id_src, data, ack_received: vec![false; data_len] })
+        //vec![false; data_len]
+        let mut vec =Vec::<bool,BUFFER_SIZE>::new();
+        for i in 0..data_len {
+            vec.push(false).unwrap(); // cant crashas Vec always bigger than  sata_len
+        }
+
+        Ok(Message { id, id_dest, id_src, data, ack_received: vec})
     }
 
     fn fill_data_with_zeros(&mut self, nb_of_0_to_add: usize) {
         for _ in 0..=nb_of_0_to_add {
-            self.data.push(0); // we add 0's to fill the remaining message
+            self.data.push(0).unwrap(); // we add 0's to fill the remaining message
         }
     }
 
