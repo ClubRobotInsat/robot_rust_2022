@@ -20,6 +20,7 @@ use stm32f1xx_hal::{pac, prelude::*,
 use panic_halt as _;
 
 use cortex_m::asm;
+use nb::block;
 use stm32f1xx_hal::gpio::{Alternate, PushPull};
 use stm32f1xx_hal::timer::{Delay, Tim3NoRemap};
 
@@ -65,7 +66,8 @@ fn main() -> ! {
     //initiation encoder mode 3
     let QeiOptions = QeiOptions{ slave_mode: SlaveMode::EncoderMode3, auto_reload_value: 65535 };
     let qei = Timer::new(dp.TIM4, &clocks).qei((c1, c2), &mut afio.mapr, QeiOptions::default());
-    let mut delay = Delay::new(cp.SYST, clocks);
+    let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
+    timer.start(1.Hz()).unwrap();
 
     //PID
     //parameters PID
@@ -93,7 +95,7 @@ fn main() -> ! {
         error= &setpoint - measured_value;
 
         if error>accept_error {
-            delay.delay_ms(1_u16);
+            block!(timer.wait()).unwrap();
             //PID operations
             //get information
             measured_value = ((qei.count()*2) as f32)/10.0; //get it from the captor in mm;
