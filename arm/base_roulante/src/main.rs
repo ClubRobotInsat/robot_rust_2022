@@ -37,17 +37,17 @@ fn main() -> ! {
 
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
+    let mut afio = dp.AFIO.constrain();
 
-    let gpioa = dp.GPIOA.split(&mut rcc.apb2);
-    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
+    let gpioa = dp.GPIOA.split();
+    let mut gpiob = dp.GPIOB.split();
     let (_pa15, _pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
     // TIM3
     let p0 = pb4.into_alternate_push_pull(&mut gpiob.crl);
     let p1= gpiob.pb5.into_alternate_push_pull(&mut gpiob.crl);
 
-    let pwm = Timer::tim3(dp.TIM3, &clocks, &mut rcc.apb1).pwm((p0, p1), &mut afio.mapr, 1.khz());
+    let mut pwm = p.TIM3.pwm_hz::<Tim3NoRemap, _, _>(pins, &mut afio.mapr, 1.kHz(), &clocks);
 
     let max = pwm.get_max_duty();
 
@@ -66,7 +66,7 @@ fn main() -> ! {
 
     //initiation encoder mode 3
     let QeiOptions = QeiOptions{ slave_mode: SlaveMode::EncoderMode3, auto_reload_value: 65535 };
-    let qei = Timer::tim4(dp.TIM4, &clocks, &mut rcc.apb1).qei((c1, c2), &mut afio.mapr, QeiOptions);
+    let qei = Timer::new(dp.TIM4, &clocks).qei((c1, c2), &mut afio.mapr, QeiOptions::default());
     let mut delay = Delay::new(cp.SYST, clocks);
 
     //PID
