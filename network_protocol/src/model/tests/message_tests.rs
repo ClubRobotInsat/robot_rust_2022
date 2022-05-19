@@ -1,15 +1,16 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-use alloc::vec;
-use alloc::vec::Vec;
+// use core::alloc::vec;
+// use core::alloc::vec::Vec;
 use core::intrinsics::transmute;
-use crate::{Message, Packet, SendError};
+use heapless::Vec;
+use crate::{BUFFER_SIZE, Message, Packet, SendError};
 use crate::model::header::Header;
 use super::super::super::Write;
 
 struct Tx {
-    buff: Vec<u8>
+    buff: Vec<u8, BUFFER_SIZE >
 }
 
 impl Write for Tx {
@@ -28,7 +29,7 @@ impl Write for Tx {
 #[test]
 fn single_packet_message_creation() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![1, 2, 3, 4, 5, 6]).unwrap();
+    let mut sender = Message::new(2, 3, 4, Vec::<u8,BUFFER_SIZE>::from_slice(&[1, 2, 3, 4, 5, 6]).unwrap()).unwrap();
     sender.send(&mut tx).unwrap();
 
     assert_eq!(tx.buff, Packet::new(
@@ -44,7 +45,7 @@ fn single_packet_message_creation() {
 #[test]
 fn multiple_packet_message_creation() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![1,2,3,4,5,6,7,8,9,10,11,12]).unwrap();
+    let mut sender = Message::new(2, 3, 4, Vec::<u8,BUFFER_SIZE>::from_slice(&[1,2,3,4,5,6,7,8,9,10,11,12]).unwrap()).unwrap();
     sender.send(&mut tx).unwrap();
 
     println!("ldkasvjblda");
@@ -61,7 +62,7 @@ fn multiple_packet_message_creation() {
             [7,8,9,10,11,12])
             .get_packet_as_binary_array()
             .into_iter()
-        ).collect::<Vec<u8>>()
+        ).collect::<Vec<u8,BUFFER_SIZE>>()
     );
 }
 
@@ -69,7 +70,7 @@ fn multiple_packet_message_creation() {
 #[test]
 fn send_multiple_times_before_ack() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![1,2,3,4,5,6,7,8,9,10,11,12]).unwrap();
+    let mut sender = Message::new(2, 3, 4, Vec::<u8,BUFFER_SIZE>::from_slice(&[1,2,3,4,5,6,7,8,9,10,11,12]).unwrap()).unwrap();
     sender.send(&mut tx).unwrap();
     sender.send(&mut tx).unwrap();
     let packet1 = Packet::new(
@@ -99,14 +100,14 @@ fn send_multiple_times_before_ack() {
                 .get_packet_as_binary_array()
                 .into_iter()
         )
-        .collect::<Vec<u8>>()
+        .collect::<Vec<u8,BUFFER_SIZE>>()
     );
 }
 
 #[test]
 fn receive_all_acks(){
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap();
+    let mut sender = Message::new(2, 3, 4, Vec::<u8,BUFFER_SIZE>::from_slice(&[6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap()).unwrap();
     sender.send(&mut tx).unwrap();
 
     sender.process_msg(Packet::new(Header::new(3,4,true,2,1).unwrap(), [0;6]));
@@ -117,7 +118,7 @@ fn receive_all_acks(){
 #[test]
 fn receive_only_one_ack() {
     let mut tx = Tx {buff: Vec::new()};
-    let mut sender = Message::new(2, 3, 4, vec![6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap();
+    let mut sender = Message::new(2, 3, 4, Vec::<u8,BUFFER_SIZE>::from_slice(&[6,5,4,3,2,1, 1, 2, 3, 4, 5, 6]).unwrap()).unwrap();
     sender.process_msg(Packet::new(Header::new(3,4,true,2,1).unwrap(), [0;6]));
     sender.send(&mut tx).unwrap();
 
