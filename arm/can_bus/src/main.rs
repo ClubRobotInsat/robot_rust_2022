@@ -7,6 +7,7 @@
 
 use core::borrow::BorrowMut;
 use core::cell::RefCell;
+use core::mem::MaybeUninit;
 use panic_halt as _;
 
 use bxcan::filter::Mask32;
@@ -22,9 +23,13 @@ use crate::pac::NVIC;
 use stm32f1::stm32f103::{CAN1, Interrupt};
 use stm32f1xx_hal::can::Can;
 use network_protocol;
+use network_protocol::MessageSender;
+use stm32f1xx_hal::gpio::{CRH, Floating, Input, Pin};
 
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
+static sender: Option<MessageSender<Tx, Rx>> = None;
+
 
 #[interrupt]
 fn USB_LP_CAN_RX0() {
