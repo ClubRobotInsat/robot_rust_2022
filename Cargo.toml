@@ -1,4 +1,5 @@
 [workspace]
 members = [
+  "network_protocol",
   "x86_tests"
 ]
