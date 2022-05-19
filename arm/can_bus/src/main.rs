@@ -21,7 +21,7 @@ use stm32f1xx_hal::timer::Timer;
 use crate::pac::NVIC;
 use stm32f1::stm32f103::{CAN1, Interrupt};
 use stm32f1xx_hal::can::Can;
-
+use network_protocol;
 
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
