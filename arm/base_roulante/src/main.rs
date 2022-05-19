@@ -42,9 +42,10 @@ fn main() -> ! {
 
     // TIM3
     let p0 = pb4.into_alternate_push_pull(&mut gpiob.crl);
-    let p1= gpiob.pb5.into_alternate_push_pull(&mut gpiob.crl);
+    let p1 = gpiob.pb5.into_alternate_push_pull(&mut gpiob.crl);
 
-    let mut pwm = dp.TIM3.pwm_hz::<Tim3NoRemap, _, _>(pins, &mut afio.mapr, 1.kHz(), &clocks);
+    let pwm = Timer::new(dp.TIM3, &clocks).pwm_hz((p0, p1), &mut afio.mapr, 1.kHz());
+
 
     let max = pwm.get_max_duty();
 
