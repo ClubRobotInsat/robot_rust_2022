@@ -14,8 +14,6 @@ use cortex_m_rt::entry;
 use stm32f1xx_hal::{pac, prelude::*,
                     qei::{QeiOptions, SlaveMode},
                     timer,
-                    delay::Delay,
-                    pwm::Channel,
                     time::U32Ext,
                     timer::{Tim2NoRemap, Timer},};
 
@@ -23,8 +21,7 @@ use panic_halt as _;
 
 use cortex_m::asm;
 use stm32f1xx_hal::gpio::{Alternate, PushPull};
-use stm32f1xx_hal::pwm::Pwm;
-use stm32f1xx_hal::pwm_input::Configuration::DutyCycle;
+use stm32f1xx_hal::timer::{Delay, Tim3NoRemap};
 
 #[entry]
 fn main() -> ! {
@@ -47,7 +44,7 @@ fn main() -> ! {
     let p0 = pb4.into_alternate_push_pull(&mut gpiob.crl);
     let p1= gpiob.pb5.into_alternate_push_pull(&mut gpiob.crl);
 
-    let mut pwm = p.TIM3.pwm_hz::<Tim3NoRemap, _, _>(pins, &mut afio.mapr, 1.kHz(), &clocks);
+    let mut pwm = dp.TIM3.pwm_hz::<Tim3NoRemap, _, _>(pins, &mut afio.mapr, 1.kHz(), &clocks);
 
     let max = pwm.get_max_duty();
 
