@@ -4,18 +4,65 @@
 #![no_main]
 #![no_std]
 
+
+use core::borrow::BorrowMut;
+use core::cell::RefCell;
 use panic_halt as _;
 
 use bxcan::filter::Mask32;
 use bxcan::{Frame, StandardId};
+use bxcan::Interrupt::Fifo0MessagePending;
+use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
 use nb::block;
-use stm32f1xx_hal::{can::Can, pac, prelude::*};
+use stm32f1xx_hal::{pac::{self,interrupt}, prelude::*};
 use stm32f1xx_hal::timer::Timer;
-use network_protocol;
+use crate::pac::NVIC;
+use stm32f1::stm32f103::{CAN1, Interrupt};
+use stm32f1xx_hal::can::Can;
+
+
+// type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
+static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
+
+#[interrupt]
+fn USB_LP_CAN_RX0() {
+    cortex_m::interrupt::free(|cs| {
+        // We need ownership of can ( bc it doesnt work without it ) so we take ownership out of the Option replacing it with None in the mutex and at the end of the critical section we replace the
+        let mut mutex_lock = CAN.borrow(cs).borrow_mut();
+        let mut can = mutex_lock
+            .take()
+            .unwrap();
+        // we always have a value as NVIC enable interrupt is after the blocking can setup
+        match block!(can.receive()) {
+            Ok(v) => {
+                //hprintln!("Read");
+                let read = v.data().unwrap().as_ref();
+                //Check ID = 1
+                //hprintln!("ID = {:?}", v.data().unwrap());
+                if read[0] == 2 {
+                    if read[2] == 1 {
+                        hprintln!("HIGH");
+                    } else if read[2] == 0 {
+                        hprintln!("LOW");
+                    } else {
+                        hprintln!("Unknown Command");
+                    }
+                } else {
+                    hprintln!("NOT ME");
+                }
+            }
+            Err(e) => {
+                hprintln!("err",);
+            }
+        }
+        mutex_lock.replace(can);
+    })
+}
 
 #[entry]
+//Symbol ! means the fonction returns NEVER => an infinite loop must exist
 fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
@@ -31,10 +78,7 @@ fn main() -> ! {
     let mut afio = dp.AFIO.constrain();
 
     let mut can1 = {
-        #[cfg(not(feature = "connectivity"))]
-            let can = Can::new(dp.CAN1, dp.USB);
-        #[cfg(feature = "connectivity")]
-            let can = Can::new(dp.CAN1);
+        let can: stm32f1xx_hal::can::Can::<CAN1> = stm32f1xx_hal::can::Can::new(dp.CAN1, dp.USB);
 
         let mut gpioa = dp.GPIOA.split();
         let rx = gpioa.pa11.into_floating_input(&mut gpioa.crh);
@@ -54,33 +98,12 @@ fn main() -> ! {
     let mut filters = can1.modify_filters();
     filters.enable_bank(0, Mask32::accept_all());
 
-    #[cfg(feature = "connectivity")]
-        let _can2 = {
-        let can = Can::new(dp.CAN2);
-
-        let mut gpiob = dp.GPIOB.split();
-        let rx = gpiob.pb5.into_floating_input(&mut gpiob.crl);
-        let tx = gpiob.pb6.into_alternate_push_pull(&mut gpiob.crl);
-        can.assign_pins((tx, rx), &mut afio.mapr);
-
-        let mut can2 = bxcan::Can::new(can);
-
-        // APB1 (PCLK1): 8MHz, Bit rate: 125kBit/s, Sample Point 87.5%
-        // Value was calculated with http://www.bittiming.can-wiki.info/
-        can2.modify_config().set_bit_timing(0x001c_0003);
-
-        // A total of 28 filters are shared between the two CAN instances.
-        // Split them equally between CAN1 and CAN2.
-        let mut slave_filters = filters.set_split(14).slave_filters();
-        slave_filters.enable_bank(14, Mask32::accept_all());
-        can2
-    };
 
     // Drop filters to leave filter configuraiton mode.
     drop(filters);
 
     // Select the interface.
-    let mut can = can1;
+    let mut can: bxcan::Can<Can<CAN1>> = can1;
     //let mut can = _can2;
 
     let mut gpioc = dp.GPIOC.split();
@@ -88,6 +111,11 @@ fn main() -> ! {
 
     // Split the peripheral into transmitter and receiver parts.
     block!(can.enable_non_blocking()).unwrap();
+    can.enable_interrupt(Fifo0MessagePending);
+
+    cortex_m::interrupt::free(|cs| CAN.borrow(cs).replace(Some(can)));
+
+    unsafe {NVIC::unmask(Interrupt::USB_LP_CAN_RX0)}
 
     // Echo back received packages in sequence.
     // See the `can-rtfm` example for an echo implementation that adheres to
@@ -98,19 +126,14 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
     //Send data
-    //Send data
     let data1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
     let data_off1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
     let data2 = Frame::new_data(StandardId::new(1_u16).unwrap(),[2_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
     let data_off2 = Frame::new_data(StandardId::new(1_16).unwrap(), [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
-    hprintln!("starting...");
 
+    hprintln!("Debut");
 
-
-
-    // attend acquittement
-
-    loop {
+    loop{
 
         //Send CODE
         /*
@@ -130,31 +153,37 @@ fn main() -> ! {
         //Receive CODE
         //ID recognition
 
-        match block!(can.receive()) {
-            Ok(v) => {
-                //hprintln!("Read");
-                let read = v.data().unwrap().as_ref();
-                //Check ID = 1
-                //hprintln!("ID = {:?}", v.data().unwrap());
-                if read[0] == 2{
 
-                    if  read[2] == 1 {
-                        led.set_high();
-                        hprintln!("HIGH");
-                    }
-                    else if read[2] == 0 {
-                        led.set_low();
-                        hprintln!("LOW");
-                    } else {
-                        hprintln!("Unknown Command");
-                    }
-                } else {
-                    hprintln!("NOT ME");
-                }
-            }
-            Err(e) => {
-                hprintln!("err",);
-            }
-        }
+        //
+        //     match block!(can.receive()) {
+        //         Ok(v) => {
+        //             //hprintln!("Read");
+        //             let read = v.data().unwrap().as_ref();
+        //             //Check ID = 1
+        //             //hprintln!("ID = {:?}", v.data().unwrap());
+        //             if read[0] == 2{
+        //
+        //                 if  read[2] == 1 {
+        //                     led.set_high();
+        //                     hprintln!("HIGH");
+        //                 }
+        //                 else if read[2] == 0 {
+        //                     led.set_low();
+        //                     hprintln!("LOW");
+        //                 } else {
+        //                     hprintln!("Unknown Command");
+        //                 }
+        //             } else {
+        //                 hprintln!("NOT ME");
+        //             }
+        //
+        //         }
+        //         Err(e) => {
+        //             hprintln!("err",);
+        //         }
+        //     }
+        //
     }
+
+
 }
