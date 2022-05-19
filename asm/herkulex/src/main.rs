@@ -1,9 +1,12 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::asm::delay;
 // use core::ptr::read;
-use cortex_m_rt::entry; // The runtime
-                        //use embedded_hal::digital::v2::OutputPin; // the `set_high/low`function
+use cortex_m_rt::entry;
+use cortex_m_semihosting::hprintln;
+use drs_0x01::Rotation::Clockwise; // The runtime
+                                   //use embedded_hal::digital::v2::OutputPin; // the `set_high/low`function
 
 #[allow(unused_imports)]
 use panic_halt;
@@ -31,7 +34,7 @@ fn main() -> ! {
     // once, so that the borrowchecker can ensure you don't reconfigure
     // something by accident.
     let dp: Peripherals = pac::Peripherals::take().unwrap();
-
+    let cp = cortex_m::Peripherals::take().unwrap();
     // GPIO pins on the STM32F1 must be driven by the APB2 peripheral clock.
     // This must be enabled first. The HAL provides some abstractions for
 
@@ -69,16 +72,53 @@ fn main() -> ! {
 
     // separate into tx and rx channels
     let (mut tx, rx) = serial.split();
+    let mut delay = cp.SYST.delay(&clocks_serial);
 
+    hprintln!("Debut");
     let communication = Communication::new(&mut tx, rx);
+    hprintln!("Comm cree");
+
     let motors = Motors::new(communication);
-    let group1 = motors.get_group(motors.new_group()).borrow_mut();
-    let group2 = motors.get_group(motors.new_group()).borrow_mut();
+    hprintln!("Motors cree");
 
-    let _ = group1.as_ref().unwrap().new_motor(0x00);
-    let _ = group1.as_ref().unwrap().new_motor(0x01);
-    let _ = group2.as_ref().unwrap().new_motor(0x00);
-    let _ = group2.as_ref().unwrap().new_motor(0x01);
+    let group1 = motors.new_group();
+    hprintln!("1er grp cree");
 
-    loop {}
+    let group2 = motors.new_group();
+    hprintln!("groupes crees");
+
+    let motor0 = group1.new_motor(0x00);
+    let motor1 = group1.new_motor(0x01);
+    let motor2 = group2.new_motor(0x02);
+    let motor3 = group2.new_motor(0x03);
+
+    hprintln!("Creation motors et groups");
+
+    motor0.reboot();
+    motor1.reboot();
+    delay.delay_ms(250_u16);
+    motor0.clear_errors();
+    motor1.clear_errors();
+    delay.delay_ms(100_u16);
+    motor0.enable_torque();
+    motor1.enable_torque();
+    delay.delay_ms(100_u16);
+
+    hprintln!("Init fini");
+
+    loop {
+        hprintln!("Boucle");
+
+        let t = motor0.get_temperature();
+        hprintln!("{:?}", t);
+        delay.delay_ms(100_u16);
+
+        motor0.set_speed(512, Clockwise);
+        motor1.set_speed(0, Clockwise);
+        delay.delay_ms(500_u16);
+
+        motor0.set_speed(0, Clockwise);
+        motor1.set_speed(512, Clockwise);
+        delay.delay_ms(500_u16);
+    }
 }
