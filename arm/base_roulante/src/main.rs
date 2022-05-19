@@ -1,3 +1,5 @@
+//! Testing the Quadrature Encoder Interface
+
 #![deny(unsafe_code)]
 #![no_main]
 #![no_std]
@@ -6,7 +8,7 @@ use cortex_m::asm::delay;
 #[allow(unused_imports)]
 use panic_halt;
 
-use cortex_m_semihosting::hprintln;
+use cortex_m_semihosting::{hprint, hprintln};
 
 use cortex_m_rt::entry;
 use stm32f1xx_hal::{pac, prelude::*,
@@ -35,10 +37,10 @@ fn main() -> ! {
 
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    let mut afio = dp.AFIO.constrain();
+    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
 
-    let gpioa = dp.GPIOA.split();
-    let mut gpiob = dp.GPIOB.split();
+    let gpioa = dp.GPIOA.split(&mut rcc.apb2);
+    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
     let (_pa15, _pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
     // TIM3
@@ -88,18 +90,15 @@ fn main() -> ! {
 
 
     loop{
-        //pwm_channels.0.set_duty(3*max/4);
-        //pwm_channels.1.set_duty(max);
 
+        hprintln!("measured_value:{}",measured_value);
+        error= &setpoint - measured_value;
 
-        while error>accept_error {
+        if error>accept_error {
             delay.delay_ms(1_u16);
             //PID operations
-            //get informations
+            //get information
             measured_value = ((qei.count()*2) as f32)/10.0; //get it from the captor in mm;
-            //time = timer::counter::SysCounter.now();  //get it from the timer
-
-            error = setpoint - measured_value;
 
             //operations
             integration = integration + (&error)*dt;
@@ -110,20 +109,29 @@ fn main() -> ! {
             //keep informations for the next round
             //PID informations
             previous_value = measured_value;
+            hprintln!("pid_correction {}",&pid_correction);
             //previous_time = time;
 
-            match pid_correction {
-                0.0..=1.0 => {
-                    pwm_channels.0.set_duty(max*(pid_correction as u16));
-                    pwm_channels.1.set_duty(max*(pid_correction as u16));
-                },
-                _ => {
-                    pwm_channels.0.set_duty(max/2);
-                    pwm_channels.1.set_duty(max/2);
-                },
+            if pid_correction <= 65535.0 && pid_correction >= 0.0 {
+                pwm_channels.0.set_duty(max * (pid_correction as u16 / 65535));
+                pwm_channels.1.set_duty(max * (pid_correction as u16 / 65535));
+            }
+            else if pid_correction < 0.0 {
+                pwm_channels.0.set_duty(max * (pid_correction as u16 / 65535));
+                pwm_channels.1.set_duty(max * (pid_correction as u16 / 65535));
+            }
+            else {
+                pwm_channels.0.set_duty(max);
+                pwm_channels.1.set_duty(max);
             }
         }
-
+        else {
+            pwm_channels.0.set_duty(0);
+            pwm_channels.1.set_duty(0);
+        }
     }
 
 }
+
+
+
