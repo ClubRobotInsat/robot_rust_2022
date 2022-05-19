@@ -35,10 +35,10 @@ fn main() -> ! {
 
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
+    let mut afio = dp.AFIO.constrain();
 
-    let gpioa = dp.GPIOA.split(&mut rcc.apb2);
-    let mut gpiob = dp.GPIOB.split(&mut rcc.apb2);
+    let gpioa = dp.GPIOA.split();
+    let mut gpiob = dp.GPIOB.split();
     let (_pa15, _pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
     // TIM3
