@@ -99,6 +99,7 @@ dependencies = [
  "embedded-hal",
  "nb 0.1.3",
  "panic-halt",
+ "stm32f1",
  "stm32f1xx-hal",
 ]
 
