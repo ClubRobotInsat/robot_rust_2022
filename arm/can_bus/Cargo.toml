@@ -16,6 +16,7 @@ bxcan = "0.6.0"
 #stm32f1xx-hal = {git = "https://github.com/stm32-rs/stm32f1xx-hal" , features = ["stm32f103", "rt", "medium", "has-can"] }
 cortex-m-semihosting = "0.3.3"
 network_protocol = {path="../../network_protocol"}
+stm32f1 = "0.14.0"
 
 [dependencies.stm32f1xx-hal]
 version = "0.9"
