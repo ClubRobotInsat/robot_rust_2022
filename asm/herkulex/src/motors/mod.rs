@@ -1,5 +1,4 @@
 use crate::motors::communication::HerkulexCommunication;
-use core::borrow::Borrow;
 use core::cell::RefCell;
 use cortex_m_semihosting::hprintln;
 
