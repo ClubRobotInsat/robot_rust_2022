@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::asm::delay;
 // use core::ptr::read;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
@@ -16,6 +15,7 @@ use stm32f1xx_hal::rcc::Rcc;
 use stm32f1xx_hal::rcc::RccExt;
 
 extern crate drs_0x01;
+
 use stm32f1xx_hal::{
     pac,
     serial::{Config, Serial},
