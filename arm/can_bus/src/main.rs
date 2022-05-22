@@ -5,7 +5,6 @@
 #![no_std]
 
 
-use core::borrow::{Borrow, BorrowMut};
 use core::cell::RefCell;
 // use core::mem::MaybeUninit;
 use panic_halt as _;
@@ -24,9 +23,7 @@ use stm32f1::stm32f103::{CAN1, Interrupt};
 use stm32f1xx_hal::can::Can;
 use network_protocol;
 use network_protocol::MessageSender;
-use stm32f1::stm32f103::fsmc::btr::ACCMOD_A::A;
 use stm32f1xx_hal::gpio::{Alternate, CRH, Floating, Input, Pin, PushPull};
-use heapless;
 use heapless::Vec;
 
 const ID: u8 = 2;
@@ -60,7 +57,7 @@ impl network_protocol::Write for Tx {
                             data
                         )
                     )
-                );
+                ).ok();
                 mutex_lock.replace(can);
             }
             Ok(())
@@ -104,11 +101,11 @@ fn USB_LP_CAN_RX0() {
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
                 for i in read {
-                    global_rx.buff.push(i.clone()).unwrap();
+                    global_rx.buff.push(*i).unwrap();
                 }
             }
             Err(e) => {
-                hprintln!("err",);
+                hprintln!("err: {:?}",e).ok();
             }
         }
         mutex_lock.replace(can);
@@ -161,7 +158,7 @@ fn main() -> ! {
     //let mut can = _can2;
 
     let mut gpioc = dp.GPIOC.split();
-    let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    let _led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // Split the peripheral into transmitter and receiver parts.
     block!(can.enable_non_blocking()).unwrap();
@@ -180,10 +177,10 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
     //Send data
-    let data1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let data_off1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
-    let data2 = Frame::new_data(StandardId::new(1_u16).unwrap(),[2_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let data_off2 = Frame::new_data(StandardId::new(1_16).unwrap(), [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
+    let _data1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
+    let _data_off1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
+    let _data2 = Frame::new_data(StandardId::new(1_u16).unwrap(),[2_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
+    let _data_off2 = Frame::new_data(StandardId::new(1_u16).unwrap(), [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
 
     hprintln!("Debut");
 
