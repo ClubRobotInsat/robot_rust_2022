@@ -47,7 +47,7 @@ fn main() -> ! {
 
     // APB1 (PCLK1): 8MHz, Bit rate: 125kBit/s, Sample Point 87.5%
     // Value was calculated with http://www.bittiming.can-wiki.info/
-    can1.modify_config().set_bit_timing(0x001c_0003);
+    let _ = can1.modify_config().set_bit_timing(0x001c_0003);
 
     // Configure filters so that can frames can be received.
     let mut filters = can1.modify_filters();
@@ -98,8 +98,8 @@ fn main() -> ! {
 
     //Send data
     let data = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let data_off = Frame::new_data(StandardId::new(1_16).unwrap(), [0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
-    hprintln!("starting...");
+    let _data_off = Frame::new_data(StandardId::new(1_u16).unwrap(), [0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
+    hprintln!("starting...").ok();
 
 
 
@@ -124,17 +124,17 @@ fn main() -> ! {
             Ok(v) => {
                 if v.data().unwrap().as_ref() == (data.data().unwrap().as_ref()) {
                     led.set_high();
-                    hprintln!("HIGH");
+                    hprintln!("HIGH").ok();
                 }
                 else if v.data().unwrap().as_ref() == [0,0,0,0,0,0,0,0] {
                     led.set_low();
-                    hprintln!("LOW");
+                    hprintln!("LOW").ok();
                 } else {
-                    hprintln!("Unknown Command");
+                    hprintln!("Unknown Command").ok();
                 }
             }
             Err(e) => {
-                hprintln!("err",);
+                hprintln!("err: {:?}",e).ok();
             }
         }
     }

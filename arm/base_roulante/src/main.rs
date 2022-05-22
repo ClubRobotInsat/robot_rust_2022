@@ -4,25 +4,17 @@
 #![no_main]
 #![no_std]
 
-use cortex_m::asm::delay;
 #[allow(unused_imports)]
-use panic_halt;
-
-use cortex_m_semihosting::{hprint, hprintln};
+use cortex_m_semihosting::{hprintln};
 
 use cortex_m_rt::entry;
 use stm32f1xx_hal::{pac, prelude::*,
                     qei::{QeiOptions, SlaveMode},
-                    timer,
-                    time::U32Ext,
-                    timer::{Tim2NoRemap, Timer},};
+                    timer::{Timer},};
 
 use panic_halt as _;
 
-use cortex_m::asm;
 use nb::block;
-use stm32f1xx_hal::gpio::{Alternate, PushPull};
-use stm32f1xx_hal::timer::{Delay, Tim3NoRemap};
 
 #[entry]
 fn main() -> ! {
@@ -31,7 +23,7 @@ fn main() -> ! {
     let cp = cortex_m::Peripherals::take().unwrap();
 
     let mut flash = dp.FLASH.constrain();
-    let mut rcc = dp.RCC.constrain();
+    let rcc = dp.RCC.constrain();
 
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
@@ -64,7 +56,7 @@ fn main() -> ! {
     let c2 = gpiob.pb7;
 
     //initiation encoder mode 3
-    let QeiOptions = QeiOptions{ slave_mode: SlaveMode::EncoderMode3, auto_reload_value: 65535 };
+    let _qei_options = QeiOptions{ slave_mode: SlaveMode::EncoderMode3, auto_reload_value: 65535 };
     let qei = Timer::new(dp.TIM4, &clocks).qei((c1, c2), &mut afio.mapr, QeiOptions::default());
     let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
     timer.start(1.Hz()).unwrap();
@@ -78,7 +70,7 @@ fn main() -> ! {
     let accept_error = 10.0;//1cm;
 
     //initiation PID
-    let mut setpoint = 1000.0; //ask it to the user
+    let setpoint = 1000.0; //ask it to the user
     let mut measured_value = 0.0;
     let mut previous_value : f32 = ((qei.count()*2) as f32)/10.0; //get it from the captor in mm
 
@@ -91,7 +83,7 @@ fn main() -> ! {
 
     loop{
 
-        hprintln!("measured_value:{}",measured_value);
+        hprintln!("measured_value:{}",measured_value).ok();
         error= &setpoint - measured_value;
 
         if error>accept_error {
@@ -109,7 +101,7 @@ fn main() -> ! {
             //keep informations for the next round
             //PID informations
             previous_value = measured_value;
-            hprintln!("pid_correction {}",&pid_correction);
+            hprintln!("pid_correction {}",&pid_correction).ok();
             //previous_time = time;
 
             if pid_correction <= 65535.0 && pid_correction >= 0.0 {
