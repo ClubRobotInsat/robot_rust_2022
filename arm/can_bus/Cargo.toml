@@ -17,6 +17,7 @@ bxcan = "0.6.0"
 cortex-m-semihosting = "0.3.3"
 network_protocol = {path="../../network_protocol"}
 stm32f1 = "0.14.0"
+heapless = "0.7.13"
 
 [dependencies.stm32f1xx-hal]
 version = "0.9"

@@ -5,9 +5,9 @@
 #![no_std]
 
 
-use core::borrow::BorrowMut;
+use core::borrow::{Borrow, BorrowMut};
 use core::cell::RefCell;
-use core::mem::MaybeUninit;
+// use core::mem::MaybeUninit;
 use panic_halt as _;
 
 use bxcan::filter::Mask32;
@@ -24,11 +24,50 @@ use stm32f1::stm32f103::{CAN1, Interrupt};
 use stm32f1xx_hal::can::Can;
 use network_protocol;
 use network_protocol::MessageSender;
-use stm32f1xx_hal::gpio::{CRH, Floating, Input, Pin};
+use stm32f1::stm32f103::fsmc::btr::ACCMOD_A::A;
+use stm32f1xx_hal::gpio::{Alternate, CRH, Floating, Input, Pin, PushPull};
+use heapless;
+use heapless::Vec;
 
+
+struct Tx {
+    tx: Pin<Alternate<PushPull>, CRH, 'A', 12>
+}
+
+struct Rx {
+    pub buff: Vec::<u8,120>
+}
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
-static sender: Option<MessageSender<Tx, Rx>> = None;
+
+impl network_protocol::Write for Tx {
+    type Error = ();
+
+    fn write(&mut self, word: u8) -> Result<(), Self::Error> {
+        cortex_m::interrupt::free(|cs| {
+            let mut mutex_lock = CAN.borrow(cs).borrow_mut();
+            let can = mutex_lock.take().unwrap();
+            block!(can.transmit(word));
+            mutex_lock.replace(can);
+        });
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        todo!()
+    }
+}
+
+impl network_protocol::Read for Rx {
+    type Error = ();
+
+    fn read(&mut self) -> Result<u8, Self::Error> {
+        todo!()
+    }
+}
+
+
+static mut global_rx: Rx = Rx{buff: Vec::new()};
+static sender: Option<MessageSender< Tx, Rx >> = None;
 
 
 #[interrupt]
@@ -41,21 +80,13 @@ fn USB_LP_CAN_RX0() {
             .unwrap();
         // we always have a value as NVIC enable interrupt is after the blocking can setup
         match block!(can.receive()) {
-            Ok(v) => {
+            Ok(v) => unsafe {
                 //hprintln!("Read");
                 let read = v.data().unwrap().as_ref();
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
-                if read[0] == 2 {
-                    if read[2] == 1 {
-                        hprintln!("HIGH");
-                    } else if read[2] == 0 {
-                        hprintln!("LOW");
-                    } else {
-                        hprintln!("Unknown Command");
-                    }
-                } else {
-                    hprintln!("NOT ME");
+                for i in read {
+                    global_rx.buff.push(i.clone()).unwrap();
                 }
             }
             Err(e) => {
@@ -86,8 +117,8 @@ fn main() -> ! {
         let can: stm32f1xx_hal::can::Can::<CAN1> = stm32f1xx_hal::can::Can::new(dp.CAN1, dp.USB);
 
         let mut gpioa = dp.GPIOA.split();
-        let rx = gpioa.pa11.into_floating_input(&mut gpioa.crh);
-        let tx = gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
+        let rx: Pin<Input<Floating>, CRH, 'A', 11> = gpioa.pa11.into_floating_input(&mut gpioa.crh);
+        let tx: Pin<Alternate<PushPull>, CRH, 'A', 12> = gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
         can.assign_pins((tx, rx), &mut afio.mapr);
 
         bxcan::Can::builder(can)
