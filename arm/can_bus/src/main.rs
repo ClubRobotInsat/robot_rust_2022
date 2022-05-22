@@ -29,9 +29,11 @@ use stm32f1xx_hal::gpio::{Alternate, CRH, Floating, Input, Pin, PushPull};
 use heapless;
 use heapless::Vec;
 
+const ID: u8 = 2;
 
 struct Tx {
-    tx: Pin<Alternate<PushPull>, CRH, 'A', 12>
+    tx: Pin<Alternate<PushPull>, CRH, 'A', 12>,
+    buff: Vec<u8,8>
 }
 
 struct Rx {
@@ -45,11 +47,24 @@ impl network_protocol::Write for Tx {
 
     fn write(&mut self, word: u8) -> Result<(), Self::Error> {
         cortex_m::interrupt::free(|cs| {
-            let mut mutex_lock = CAN.borrow(cs).borrow_mut();
-            let can = mutex_lock.take().unwrap();
-            block!(can.transmit(word));
-            mutex_lock.replace(can);
-        });
+            self.buff.push(word).unwrap();
+            if self.buff.len() == 8 {
+                let mut mutex_lock = CAN.borrow(cs).borrow_mut();
+                let mut can = mutex_lock.take().unwrap();
+                let data: [u8;8] = self.buff.clone().into_array::<8>().unwrap();
+                self.buff.clear();
+                block!(can.transmit(
+                        &Frame::new_data(
+                            StandardId::new(ID.into())
+                            .unwrap(),
+                            data
+                        )
+                    )
+                );
+                mutex_lock.replace(can);
+            }
+            Ok(())
+        })
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -61,7 +76,10 @@ impl network_protocol::Read for Rx {
     type Error = ();
 
     fn read(&mut self) -> Result<u8, Self::Error> {
-        todo!()
+        match self.buff.pop() {
+            None => { Err(()) }
+            Some(w) => { Ok(w) }
+        }
     }
 }
 
