@@ -7,7 +7,7 @@ use crate::model::message::Message;
 use crate::model::packet::Packet;
 use crate::model::protocol_constants::*;
 
-pub const BUFFER_SIZE: usize = 110; // not optimised at all but as we can send 96 bytes at max + 7 * 2 at least I am sure its enough
+pub const BUFFER_SIZE: usize = 50; // not optimised at all but as we can send 96 bytes at max + 7 * 2 at least I am sure its enough
 
 /// Defines a struct which can receive data ( RX )
 // todo Word might not be u8

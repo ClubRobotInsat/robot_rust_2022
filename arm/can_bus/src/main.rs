@@ -5,6 +5,7 @@
 #![no_std]
 
 
+use core::borrow::BorrowMut;
 use core::cell::RefCell;
 // use core::mem::MaybeUninit;
 use panic_halt as _;
@@ -29,12 +30,11 @@ use heapless::Vec;
 const ID: u8 = 2;
 
 struct Tx {
-    tx: Pin<Alternate<PushPull>, CRH, 'A', 12>,
     buff: Vec<u8,8>
 }
 
 struct Rx {
-    pub buff: Vec::<u8,120>
+    pub buff: Vec::<u8,20>
 }
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
@@ -82,7 +82,7 @@ impl network_protocol::Read for Rx {
 
 
 static mut global_rx: Rx = Rx{buff: Vec::new()};
-static sender: Option<MessageSender< Tx, Rx >> = None;
+static mut sender: Option<MessageSender< Tx, Rx >> = None;
 
 
 #[interrupt]
@@ -115,6 +115,8 @@ fn USB_LP_CAN_RX0() {
 #[entry]
 //Symbol ! means the fonction returns NEVER => an infinite loop must exist
 fn main() -> ! {
+
+
     let dp = pac::Peripherals::take().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
 
@@ -165,6 +167,10 @@ fn main() -> ! {
     can.enable_interrupt(Fifo0MessagePending);
 
     cortex_m::interrupt::free(|cs| CAN.borrow(cs).replace(Some(can)));
+    unsafe {
+        sender = Some(MessageSender::new(ID,Tx{buff: Vec::new() },Rx{buff: Vec::new()}).unwrap());
+    }
+
 
     unsafe {NVIC::unmask(Interrupt::USB_LP_CAN_RX0)}
 
@@ -184,8 +190,15 @@ fn main() -> ! {
 
     hprintln!("Debut");
 
-    loop{
-
+    loop {
+        block!(timer.wait()).unwrap();
+        unsafe {
+            sender.as_mut()
+                .unwrap()
+                .send_message(2,Vec::from_slice(&[1,2,3,4,5,6])
+                    .unwrap())
+                .unwrap();
+        }
         //Send CODE
         /*
                     block!(can.transmit(&data1)).unwrap();
