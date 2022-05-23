@@ -4,40 +4,45 @@
 #![no_main]
 #![no_std]
 
-
 use core::borrow::BorrowMut;
 use core::cell::RefCell;
 // use core::mem::MaybeUninit;
 use panic_halt as _;
 
+use crate::pac::NVIC;
+use crate::protocol::Message;
 use bxcan::filter::Mask32;
-use bxcan::{Frame, StandardId};
 use bxcan::Interrupt::Fifo0MessagePending;
+use bxcan::{Frame, StandardId};
 use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
+use heapless::Vec;
 use nb::block;
-use stm32f1xx_hal::{pac::{self,interrupt}, prelude::*};
-use stm32f1xx_hal::timer::Timer;
-use crate::pac::NVIC;
-use stm32f1::stm32f103::{CAN1, Interrupt};
-use stm32f1xx_hal::can::Can;
 use network_protocol;
 use network_protocol::MessageSender;
-use stm32f1xx_hal::gpio::{Alternate, CRH, Floating, Input, Pin, PushPull};
-use heapless::Vec;
+use stm32f1::stm32f103::{Interrupt, CAN1};
+use stm32f1xx_hal::can::Can;
+use stm32f1xx_hal::gpio::{Alternate, Floating, Input, Pin, PushPull, CRH};
+use stm32f1xx_hal::timer::Timer;
+use stm32f1xx_hal::{
+    pac::{self, interrupt},
+    prelude::*,
+};
+
+mod protocol;
 
 const ID: u8 = 2;
 
 struct Tx {
-    buff: Vec<u8,8>
+    buff: Vec<u8, 8>,
 }
 
 struct Rx {
-    pub buff: Vec::<u8,20>
+    pub buff: Vec<u8, 20>,
 }
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
-static CAN : Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
+static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
 
 impl network_protocol::Write for Tx {
     type Error = ();
@@ -48,16 +53,10 @@ impl network_protocol::Write for Tx {
             if self.buff.len() == 8 {
                 let mut mutex_lock = CAN.borrow(cs).borrow_mut();
                 let mut can = mutex_lock.take().unwrap();
-                let data: [u8;8] = self.buff.clone().into_array::<8>().unwrap();
+                let data: [u8; 8] = self.buff.clone().into_array::<8>().unwrap();
                 self.buff.clear();
-                block!(can.transmit(
-                        &Frame::new_data(
-                            StandardId::new(ID.into())
-                            .unwrap(),
-                            data
-                        )
-                    )
-                ).ok();
+                block!(can.transmit(&Frame::new_data(StandardId::new(ID.into()).unwrap(), data)))
+                    .ok();
                 mutex_lock.replace(can);
             }
             Ok(())
@@ -74,25 +73,21 @@ impl network_protocol::Read for Rx {
 
     fn read(&mut self) -> Result<u8, Self::Error> {
         match self.buff.pop() {
-            None => { Err(()) }
-            Some(w) => { Ok(w) }
+            None => Err(()),
+            Some(w) => Ok(w),
         }
     }
 }
 
-
-static mut global_rx: Rx = Rx{buff: Vec::new()};
-static mut sender: Option<MessageSender< Tx, Rx >> = None;
-
+static mut global_rx: Rx = Rx { buff: Vec::new() };
+static mut sender: Option<MessageSender<Tx, Rx>> = None;
 
 #[interrupt]
 fn USB_LP_CAN_RX0() {
     cortex_m::interrupt::free(|cs| {
         // We need ownership of can ( bc it doesnt work without it ) so we take ownership out of the Option replacing it with None in the mutex and at the end of the critical section we replace the
         let mut mutex_lock = CAN.borrow(cs).borrow_mut();
-        let mut can = mutex_lock
-            .take()
-            .unwrap();
+        let mut can = mutex_lock.take().unwrap();
         // we always have a value as NVIC enable interrupt is after the blocking can setup
         match block!(can.receive()) {
             Ok(v) => unsafe {
@@ -103,9 +98,9 @@ fn USB_LP_CAN_RX0() {
                 for i in read {
                     global_rx.buff.push(*i).unwrap();
                 }
-            }
+            },
             Err(e) => {
-                hprintln!("err: {:?}",e).ok();
+                hprintln!("err: {:?}", e).ok();
             }
         }
         mutex_lock.replace(can);
@@ -115,8 +110,6 @@ fn USB_LP_CAN_RX0() {
 #[entry]
 //Symbol ! means the fonction returns NEVER => an infinite loop must exist
 fn main() -> ! {
-
-
     let dp = pac::Peripherals::take().unwrap();
     let cp = cortex_m::Peripherals::take().unwrap();
 
@@ -131,11 +124,12 @@ fn main() -> ! {
     let mut afio = dp.AFIO.constrain();
 
     let mut can1 = {
-        let can: stm32f1xx_hal::can::Can::<CAN1> = stm32f1xx_hal::can::Can::new(dp.CAN1, dp.USB);
+        let can: stm32f1xx_hal::can::Can<CAN1> = stm32f1xx_hal::can::Can::new(dp.CAN1, dp.USB);
 
         let mut gpioa = dp.GPIOA.split();
         let rx: Pin<Input<Floating>, CRH, 'A', 11> = gpioa.pa11.into_floating_input(&mut gpioa.crh);
-        let tx: Pin<Alternate<PushPull>, CRH, 'A', 12> = gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
+        let tx: Pin<Alternate<PushPull>, CRH, 'A', 12> =
+            gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
         can.assign_pins((tx, rx), &mut afio.mapr);
 
         bxcan::Can::builder(can)
@@ -150,7 +144,6 @@ fn main() -> ! {
     // Configure filters so that can frames can be received.
     let mut filters = can1.modify_filters();
     filters.enable_bank(0, Mask32::accept_all());
-
 
     // Drop filters to leave filter configuraiton mode.
     drop(filters);
@@ -168,11 +161,11 @@ fn main() -> ! {
 
     cortex_m::interrupt::free(|cs| CAN.borrow(cs).replace(Some(can)));
     unsafe {
-        sender = Some(MessageSender::new(ID,Tx{buff: Vec::new() },Rx{buff: Vec::new()}).unwrap());
+        sender =
+            Some(MessageSender::new(ID, Tx { buff: Vec::new() }, Rx { buff: Vec::new() }).unwrap());
     }
 
-
-    unsafe {NVIC::unmask(Interrupt::USB_LP_CAN_RX0)}
+    unsafe { NVIC::unmask(Interrupt::USB_LP_CAN_RX0) }
 
     // Echo back received packages in sequence.
     // See the `can-rtfm` example for an echo implementation that adheres to
@@ -183,22 +176,40 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
     //Send data
-    let _data1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let _data_off1 = Frame::new_data(StandardId::new(1_u16).unwrap(),[1_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
-    let _data2 = Frame::new_data(StandardId::new(1_u16).unwrap(),[2_u8, 1_u8 ,1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8]);
-    let _data_off2 = Frame::new_data(StandardId::new(1_u16).unwrap(), [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8]);
+    let _data1 = Frame::new_data(
+        StandardId::new(1_u16).unwrap(),
+        [1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8],
+    );
+    let _data_off1 = Frame::new_data(
+        StandardId::new(1_u16).unwrap(),
+        [1_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8],
+    );
+    let _data2 = Frame::new_data(
+        StandardId::new(1_u16).unwrap(),
+        [2_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8, 1_u8],
+    );
+    let _data_off2 = Frame::new_data(
+        StandardId::new(1_u16).unwrap(),
+        [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8],
+    );
 
     hprintln!("Debut");
 
+    let mut sender1 = protocol::Messages::new(2).unwrap();
+    sender1.add_message_to_send_buff(
+        Message::new(5, 3, 2, Vec::from_slice(&[1, 2, 3, 4, 5, 6]).unwrap()).unwrap(),
+    );
     loop {
         block!(timer.wait()).unwrap();
-        unsafe {
-            sender.as_mut()
-                .unwrap()
-                .send_message(2,Vec::from_slice(&[1,2,3,4,5,6])
-                    .unwrap())
-                .unwrap();
-        }
+
+        hprintln!(
+            "Next packet: {:?}",
+            sender1
+                .get_next_packet_to_send()
+                .unwrap_or(Vec::from_slice(&[0; 8]).unwrap())
+        )
+        .ok();
+
         //Send CODE
         /*
                     block!(can.transmit(&data1)).unwrap();
@@ -216,7 +227,6 @@ fn main() -> ! {
         */
         //Receive CODE
         //ID recognition
-
 
         //
         //     match block!(can.receive()) {
@@ -248,6 +258,4 @@ fn main() -> ! {
         //     }
         //
     }
-
-
 }
