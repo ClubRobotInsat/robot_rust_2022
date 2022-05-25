@@ -446,7 +446,8 @@ impl Messages {
             for paquet in &mut mess.buff {
                 max_seq_num = max(max_seq_num, paquet.get_seq_num());
             }
-            if mess.buff.len() == max_seq_num as usize {
+            hprintln!("found max: {}", max_seq_num).ok();
+            if mess.buff.len()-1 as usize == max_seq_num as usize {
                 let mut new_mes: Vec<u8,96> = Vec::new();
                 for p in &mut mess.buff {
                     let arr = p.get_packet_as_binary_array();
