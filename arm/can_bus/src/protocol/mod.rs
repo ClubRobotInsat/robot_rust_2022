@@ -1,5 +1,6 @@
 //
 
+use core::cmp::max;
 use cortex_m_semihosting::hprintln;
 use heapless::Vec;
 
@@ -176,6 +177,10 @@ impl Packet {
         self.header.id_dest
     }
 
+    pub fn get_seq_num(&self) -> u8 {
+        self.header.seq_number
+    }
+
     // pub fn send<Tx: Write>(&mut self, tx: &mut Tx) -> Result<(), SendError> {
     //     for byte in self.get_packet_as_binary_array() {
     //         match tx.write(byte) {
@@ -340,11 +345,13 @@ impl MessageInProgress {
             buff: Vec::new()
         }
     }
+
+
 }
 
 pub struct Messages {
     pub host_id: u8,
-    pub received: Vec<Message, 8>,
+    pub received: Vec<Vec<u8,96>, 8>,
     pub acks_to_send: Vec<[u8;8],8>,
     pub send_buff: Vec<Message, 8>,
     pub messages_in_progess: Vec<MessageInProgress,8>
@@ -388,6 +395,7 @@ impl Messages {
             let mut message_already_exists = false;
             let len = self.messages_in_progess.len();
             for i in &mut self.messages_in_progess {
+                hprintln!("message existed").ok();
                 match i.buff.get(0)  {
                     None => {hprintln!("bizzar??");}
                     Some(v) => {
@@ -399,9 +407,13 @@ impl Messages {
 
             }
             if !message_already_exists {
+                hprintln!("new message created").ok();
                 self.messages_in_progess.push(MessageInProgress::new()).unwrap();
                 self.messages_in_progess.last_mut().unwrap().buff.push(packet.clone()).unwrap();
             }
+        }
+        for mess in self.get_finished_messages() {
+            self.received.push(mess).unwrap();
         }
         // todo
     }
@@ -425,5 +437,27 @@ impl Messages {
             return Some(Vec::from_slice(&self.acks_to_send.pop().unwrap()).unwrap())
         }
         self.send_buff.get_mut(0)?.get_next_packet_to_send()
+    }
+
+    fn get_finished_messages(&mut self) -> Vec<Vec<u8,96>,8> {
+        let mut res: Vec<Vec<u8,96>,8> = Vec::new();
+        for mess in &mut self.messages_in_progess {
+            let mut max_seq_num: u8 = 0;
+            for paquet in &mut mess.buff {
+                max_seq_num = max(max_seq_num, paquet.get_seq_num());
+            }
+            if mess.buff.len() == max_seq_num as usize {
+                let mut new_mes: Vec<u8,96> = Vec::new();
+                for p in &mut mess.buff {
+                    let arr = p.get_packet_as_binary_array();
+                    for i in 2..8 {
+                        new_mes.push(arr[i]).unwrap();
+                    }
+                }
+                res.push(new_mes).unwrap();
+            }
+        }
+        hprintln!("completed messages restunr: {:?}", res.clone()).ok();
+        res
     }
 }
