@@ -4,6 +4,9 @@ mod errors;
 mod header;
 mod packet;
 
+use crate::protocol::errors::MessageCreationError;
+use crate::protocol::header::Header;
+use crate::protocol::packet::Packet;
 use core::cmp::max;
 use cortex_m_semihosting::hprintln;
 use heapless::Vec;
@@ -25,7 +28,7 @@ pub struct Message {
     pub id_src: u8,
     pub data: Vec<u8, MAX_MESS_LEN>,
     actual_sec_num: u8,
-    pub ack_received: Vec<bool, MAX_SEQ_NUMBER_LEN_USIZE>,
+    pub ack_received: Vec<bool, MAX_SEQ_NUMBER>,
 }
 
 impl Message {
@@ -38,7 +41,7 @@ impl Message {
         if id_dest == id_src {
             return Err(MessageCreationError::SrcAndDestCanNotBeEqual);
         }
-        if id_dest > MAX_ID || id_src > MAX_ID {
+        if id_dest > MAX_ID as u8 || id_src > MAX_ID as u8 {
             return Err(MessageCreationError::ParametersTooLong);
         }
         if data.len() / BYTES_LEFT_IN_PACKAGE as usize
@@ -49,7 +52,7 @@ impl Message {
 
         let data_len = (data.len() / BYTES_LEFT_IN_PACKAGE as usize) + 1;
         //vec![false; data_len]
-        let mut vec = Vec::<bool, MAX_SEQ_NUMBER_LEN_USIZE>::new();
+        let mut vec = Vec::<bool, MAX_SEQ_NUMBER>::new();
         for _ in 0..data_len {
             vec.push(false).unwrap(); // cant crashas Vec always bigger than  sata_len
         }

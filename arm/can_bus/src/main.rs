@@ -34,13 +34,11 @@ const HOST_ID: u8 = 3;
 
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
-static SENDER : Mutex<RefCell<Option<Messages>>> = Mutex::new(RefCell::new(None));
+static SENDER: Mutex<RefCell<Option<Messages>>> = Mutex::new(RefCell::new(None));
 
 #[interrupt]
 fn USB_LP_CAN_RX0() {
-
     cortex_m::interrupt::free(|cs| {
-
         // We need ownership of can ( bc it doesnt work without it ) so we take ownership out of the Option replacing it with None in the mutex and at the end of the critical section we replace the
         let mut mutex_lock = CAN.borrow(cs).borrow_mut();
         let mut can = mutex_lock.take().unwrap();
@@ -48,13 +46,16 @@ fn USB_LP_CAN_RX0() {
         match block!(can.receive()) {
             Ok(v) => {
                 //hprintln!("Read");
-                let read:[u8;8] = <[u8; 8]>::try_from(v.data().unwrap().as_ref()).unwrap();
-                SENDER.borrow(&cs)
-                    .borrow_mut().as_mut().unwrap().process_message(read);
+                let read: [u8; 8] = <[u8; 8]>::try_from(v.data().unwrap().as_ref()).unwrap();
+                SENDER
+                    .borrow(&cs)
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .process_message(read);
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
-
-            },
+            }
             Err(e) => {
                 hprintln!("err: {:?}", e).ok();
             }
@@ -117,10 +118,10 @@ fn main() -> ! {
 
     cortex_m::interrupt::free(|cs| {
         CAN.borrow(cs).replace(Some(can));
-        SENDER.borrow(&cs)
+        SENDER
+            .borrow(&cs)
             .replace(Some(Messages::new(HOST_ID).unwrap()));
     });
-
 
     unsafe { NVIC::unmask(Interrupt::USB_LP_CAN_RX0) }
 
