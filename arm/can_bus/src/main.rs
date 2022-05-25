@@ -10,7 +10,7 @@ use core::cell::RefCell;
 use panic_halt as _;
 
 use crate::pac::NVIC;
-use crate::protocol::Message;
+use crate::protocol::{Header, Message, Packet};
 use bxcan::filter::Mask32;
 use bxcan::Interrupt::Fifo0MessagePending;
 use bxcan::{Frame, StandardId};
@@ -19,8 +19,6 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
 use heapless::Vec;
 use nb::block;
-use network_protocol;
-use network_protocol::MessageSender;
 use stm32f1::stm32f103::{Interrupt, CAN1};
 use stm32f1xx_hal::can::Can;
 use stm32f1xx_hal::gpio::{Alternate, Floating, Input, Pin, PushPull, CRH};
@@ -32,55 +30,10 @@ use stm32f1xx_hal::{
 
 mod protocol;
 
-const ID: u8 = 2;
 
-struct Tx {
-    buff: Vec<u8, 8>,
-}
-
-struct Rx {
-    pub buff: Vec<u8, 20>,
-}
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::::Can<Can<CAN1>>>
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
 
-impl network_protocol::Write for Tx {
-    type Error = ();
-
-    fn write(&mut self, word: u8) -> Result<(), Self::Error> {
-        cortex_m::interrupt::free(|cs| {
-            self.buff.push(word).unwrap();
-            if self.buff.len() == 8 {
-                let mut mutex_lock = CAN.borrow(cs).borrow_mut();
-                let mut can = mutex_lock.take().unwrap();
-                let data: [u8; 8] = self.buff.clone().into_array::<8>().unwrap();
-                self.buff.clear();
-                block!(can.transmit(&Frame::new_data(StandardId::new(ID.into()).unwrap(), data)))
-                    .ok();
-                mutex_lock.replace(can);
-            }
-            Ok(())
-        })
-    }
-
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        todo!()
-    }
-}
-
-impl network_protocol::Read for Rx {
-    type Error = ();
-
-    fn read(&mut self) -> Result<u8, Self::Error> {
-        match self.buff.pop() {
-            None => Err(()),
-            Some(w) => Ok(w),
-        }
-    }
-}
-
-static mut global_rx: Rx = Rx { buff: Vec::new() };
-static mut sender: Option<MessageSender<Tx, Rx>> = None;
 
 #[interrupt]
 fn USB_LP_CAN_RX0() {
@@ -95,9 +48,7 @@ fn USB_LP_CAN_RX0() {
                 let read = v.data().unwrap().as_ref();
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
-                for i in read {
-                    global_rx.buff.push(*i).unwrap();
-                }
+
             },
             Err(e) => {
                 hprintln!("err: {:?}", e).ok();
@@ -160,10 +111,7 @@ fn main() -> ! {
     can.enable_interrupt(Fifo0MessagePending);
 
     cortex_m::interrupt::free(|cs| CAN.borrow(cs).replace(Some(can)));
-    unsafe {
-        sender =
-            Some(MessageSender::new(ID, Tx { buff: Vec::new() }, Rx { buff: Vec::new() }).unwrap());
-    }
+
 
     unsafe { NVIC::unmask(Interrupt::USB_LP_CAN_RX0) }
 
@@ -197,19 +145,27 @@ fn main() -> ! {
 
     let mut sender1 = protocol::Messages::new(2).unwrap();
     sender1.add_message_to_send_buff(
-        Message::new(5, 3, 2, Vec::from_slice(&[1, 2, 3, 4, 5, 6]).unwrap()).unwrap(),
+        Message::new(5, 3, 2, Vec::from_slice(&[1, 2, 3, 4, 5, 6,7,8]).unwrap()).unwrap(),
     );
     loop {
         block!(timer.wait()).unwrap();
 
         hprintln!(
-            "Next packet: {:?}",
+            "[]Next packet: {:?}",
             sender1
                 .get_next_packet_to_send()
-                .unwrap_or(Vec::from_slice(&[0; 8]).unwrap())
+                .unwrap_or(Vec::<u8,8>::from_slice(&[0; 8]).unwrap()),
+
         )
         .ok();
-
+        // hprintln!("sending ack").ok();
+        // sender1.process_message(Packet::new(Header::new(2,3,true,5,1).unwrap(),[0,0,0,0,0,0]).get_packet_as_binary_array());
+        // sender1.respond_ack(Packet::new(Header::new(2,3,false,5,1).unwrap(),[0,0,0,0,0,0]));
+        // for m in &sender1.send_buff {
+        //     hprintln!("to send: {:?}", m.clone()).ok();
+        // }
+        sender1.process_message(Packet::new(Header::new(sender1.host_id,5,false,3,0).unwrap(),[9,10,11,12,13,14]).get_packet_as_binary_array());
+        hprintln!("rec: {:?}", sender1.received.clone()).ok();
         //Send CODE
         /*
                     block!(can.transmit(&data1)).unwrap();

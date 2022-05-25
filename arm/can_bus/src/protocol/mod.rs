@@ -1,5 +1,6 @@
 //
 
+use cortex_m_semihosting::hprintln;
 use heapless::Vec;
 
 pub const MAX_ID_LEN: u8 = 16 - 1;
@@ -125,7 +126,18 @@ impl Packet {
 
     pub fn new_from_binary_array(data: &[u8; CAN_PACKET_SIZE as usize]) -> Packet {
         let header = Header::new_from_binary_array(data[0..2].try_into().unwrap());
-        let payload: [u8; 6] = data[2..=CAN_PACKET_SIZE as usize].try_into().unwrap();
+        hprintln!("interpreted header").ok();
+        let mut payload: [u8;6] = [0;6];
+        hprintln!("data: {:?}", data.clone()).ok();
+        for i in 0..6 {
+            // hprintln!("i: {}", i).ok();
+            payload[i] = data[2+i];
+        }
+        hprintln!("payload created").ok();
+        // let payload: [u8; 6] = match data[2..].try_into() {
+        //     Err(e) => {hprintln!("err {:?}", e).ok(); [0;6]},
+        //     Ok(v) => v
+        // };
         Packet { header, payload }
     }
 
@@ -144,6 +156,26 @@ impl Packet {
         packet
     }
 
+    fn get_message_id(&self) -> u8 {
+        self.header.get_id_message()
+    }
+
+    pub fn is_ack(&self) -> bool {
+        self.header.is_ack
+    }
+
+    pub fn get_ack_num(&self) -> u8 {
+        self.header.seq_number
+    }
+
+    pub fn get_src_id(&self) -> u8 {
+        self.header.get_id_src()
+    }
+
+    pub fn get_dest_id(&self) -> u8 {
+        self.header.id_dest
+    }
+
     // pub fn send<Tx: Write>(&mut self, tx: &mut Tx) -> Result<(), SendError> {
     //     for byte in self.get_packet_as_binary_array() {
     //         match tx.write(byte) {
@@ -156,7 +188,7 @@ impl Packet {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub id: u8,
     pub id_dest: u8,
@@ -185,12 +217,13 @@ impl Message {
             return Err(MessageCreationError::MessageTooLong);
         }
 
-        let data_len = data.len() / BYTES_LEFT_IN_PACKAGE as usize;
+        let data_len = (data.len() / BYTES_LEFT_IN_PACKAGE as usize)+1;
         //vec![false; data_len]
         let mut vec = Vec::<bool, MAX_SEQ_NUMBER_LEN_USIZE>::new();
         for _ in 0..data_len {
             vec.push(false).unwrap(); // cant crashas Vec always bigger than  sata_len
         }
+        // vec[0] = true;
 
         Ok(Message {
             id,
@@ -202,29 +235,43 @@ impl Message {
         })
     }
 
+    fn mark_ack_as_received(&mut self, seq_num: u8) {
+        let seq_num = seq_num as usize;
+        let mess_len: usize = self.ack_received.len();
+        match self.ack_received.get( mess_len- seq_num) {
+            None => {  }
+            Some(_) => { self.ack_received[mess_len - seq_num] = true }
+        }
+    }
+
     fn fill_data_with_zeros(&mut self, nb_of_0_to_add: usize) {
         for _ in 0..=nb_of_0_to_add {
             self.data.push(0).unwrap(); // we add 0's to fill the remaining message
         }
     }
 
-    pub fn get_next_packet_to_send<'a>(&mut self) -> Option<Vec<u8, 8>> {
+    pub fn get_next_packet_to_send(&mut self) -> Option<Vec<u8, 8>> {
         let remainder = self.data.len() % BYTES_LEFT_IN_PACKAGE as usize;
-        if remainder == 0 {
+        if remainder != 0 {
             // add 0 to the end of the message
-            self.fill_data_with_zeros(remainder)
+            self.fill_data_with_zeros(remainder +1);
         }
-        let max_seq_num = self.data.len() / BYTES_LEFT_IN_PACKAGE as usize;
+        hprintln!("filled 0's").ok();
+        let max_seq_num = (self.data.len() / BYTES_LEFT_IN_PACKAGE as usize);
         // we can create an exact number of messages
         let seq_numbers = 0..(max_seq_num as usize); //(0..self.data.len()/BYTES_LEFT_IN_PACKAGE as usize).rev();
+        let m:u32 = max_seq_num.try_into().unwrap();
         if self.all_ack_received() {
             return None;
         }
-        while self.ack_received[(self.actual_sec_num % MAX_SEQ_NUMBER_LEN) as usize] {
-            self.actual_sec_num += 1;
-        }
+        // while self.ack_received[(self.actual_sec_num % MAX_SEQ_NUMBER_LEN) as usize] {
+        //     self.actual_sec_num = (self.actual_sec_num +1)%MAX_SEQ_NUMBER_LEN;
+        // }
 
-        if self.actual_sec_num < max_seq_num.try_into().unwrap() {
+        hprintln!("[{}]pre if: acks {:?}, dlen: {:?}",self.actual_sec_num ,self.ack_received.clone(), max_seq_num);
+        let len: u8 = self.ack_received.len().try_into().unwrap();
+        if !self.ack_received[self.actual_sec_num as usize] {
+            hprintln!("entered if");
             let i = self.actual_sec_num as usize;
             // if the packet has already been received by the other STM dont' resend it
 
@@ -236,21 +283,33 @@ impl Message {
                 u8::try_from(max_seq_num - 1).unwrap() - u8::try_from(i).unwrap(), // can't fail as the message is at max 90 bytes long which fits in a u8
             )
             .unwrap(); // we already checked the validity of the data in the new function of message so it can't crash
-
+            hprintln!("header created");
             let mut data: [u8; BYTES_LEFT_IN_PACKAGE as usize] =
                 [0; BYTES_LEFT_IN_PACKAGE as usize];
             // on decale chaque fois de la taille du message (6 bytes)
-            data[..BYTES_LEFT_IN_PACKAGE as usize].clone_from_slice(
-                &self.data[(i * BYTES_LEFT_IN_PACKAGE as usize)
-                    ..((BYTES_LEFT_IN_PACKAGE as usize + i * BYTES_LEFT_IN_PACKAGE as usize)
-                        as usize)],
-            );
-            // let x: Box<POOL, [u8; 8]> = POOL::alloc().unwrap();
+            hprintln!("array data: {:?}", self.data);
 
+            for n in 0..6 {
+                data[n] = match self.data.get((self.actual_sec_num*6) as usize + n) {
+                    None => {hprintln!("index err {:?}",n); 0}
+                    Some(x) => { *x}
+                };
+            }
+            // data[..BYTES_LEFT_IN_PACKAGE as usize].clone_from_slice(
+            //     &self.data[(i * BYTES_LEFT_IN_PACKAGE as usize)
+            //         ..((BYTES_LEFT_IN_PACKAGE as usize + i * BYTES_LEFT_IN_PACKAGE as usize)
+            //             as usize)],
+            // );
+            hprintln!("cloned from slice");
+
+            // let x: Box<POOL, [u8; 8]> = POOL::alloc().unwrap();
+            // hprintln!("actual seq num:{}", self.actual_sec_num);
+            self.actual_sec_num = (self.actual_sec_num +1)%len;
             return Some(
                 Vec::from_slice(&Packet::new(header, data).get_packet_as_binary_array()).unwrap(),
             );
         }
+        self.actual_sec_num = (self.actual_sec_num +1)%len;
         None
         // this means it was sent successfully but we don't know if it was received we need to check the acks
         // Ok(())
@@ -270,10 +329,25 @@ impl Message {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MessageInProgress {
+    pub buff: Vec<Packet, 8>,
+}
+
+impl MessageInProgress {
+    pub fn new() -> Self {
+        MessageInProgress {
+            buff: Vec::new()
+        }
+    }
+}
+
 pub struct Messages {
-    host_id: u8,
-    received: Vec<Message, 8>,
-    send_buff: Vec<Message, 8>,
+    pub host_id: u8,
+    pub received: Vec<Message, 8>,
+    pub acks_to_send: Vec<[u8;8],8>,
+    pub send_buff: Vec<Message, 8>,
+    pub messages_in_progess: Vec<MessageInProgress,8>
 }
 
 impl Messages {
@@ -283,16 +357,73 @@ impl Messages {
         }
         Ok(Messages {
             host_id,
+            acks_to_send: Vec::new(),
             received: Vec::new(),
             send_buff: Vec::new(),
+            messages_in_progess: Vec::new()
         })
     }
+    pub fn process_message(&mut self, mess: [u8;8]) {
+        hprintln!("processing mess").ok();
+        let packet = Packet::new_from_binary_array(&mess);
+        hprintln!("interpreted packet").ok();
+        if packet.get_dest_id() != self.host_id { return; }
+        // the packet is for us
+        if packet.is_ack() {
+            hprintln!("is ack").ok();
+            for mess in &mut self.send_buff {
+                if mess.id == packet.get_message_id() {
+                    mess.mark_ack_as_received(packet.get_ack_num());
+                    hprintln!("marked as received").ok();
+                }
+            }
+            for i in 0..self.send_buff.len() {
+                if self.send_buff[i].all_ack_received() {
+                    self.send_buff.swap_remove(i);
+                }
+            }
+        } else {
+            self.respond_ack(packet.clone());
+            // TODO P0: I've supposed we maintain order it shouldnt be that way
+            let mut message_already_exists = false;
+            let len = self.messages_in_progess.len();
+            for i in &mut self.messages_in_progess {
+                match i.buff.get(0)  {
+                    None => {hprintln!("bizzar??");}
+                    Some(v) => {
+                        if v.get_message_id() == packet.get_message_id() {
+                        i.buff.push(packet.clone()).unwrap();
+                        message_already_exists = true;
+                    }}
+                }
+
+            }
+            if !message_already_exists {
+                self.messages_in_progess.push(MessageInProgress::new()).unwrap();
+                self.messages_in_progess.last_mut().unwrap().buff.push(packet.clone()).unwrap();
+            }
+        }
+        // todo
+    }
+    pub fn respond_ack(&mut self, packet_to_respond: Packet) {
+        let mut paquet = Packet::new_from_binary_array(&packet_to_respond.get_packet_as_binary_array());
+        let src_id = paquet.get_src_id();
+        paquet.header.id_src = paquet.header.id_dest;
+        paquet.header.id_dest = src_id;
+        paquet.header.is_ack = true;
+        hprintln!("respond ack").ok();
+        self.acks_to_send.push(paquet.get_packet_as_binary_array()).unwrap();
+        hprintln!("respond ack unwruap").ok();
+    }
+
     pub fn add_message_to_send_buff(&mut self, mes: Message) {
         self.send_buff.push(mes).expect("send mess full");
     }
     pub fn get_next_packet_to_send(&mut self) -> Option<Vec<u8, 8>> {
+        hprintln!("packet send").ok();
+        if self.acks_to_send.len() != 0 {
+            return Some(Vec::from_slice(&self.acks_to_send.pop().unwrap()).unwrap())
+        }
         self.send_buff.get_mut(0)?.get_next_packet_to_send()
     }
 }
-
-pub fn process_message(bytes: [u8; 8]) {}
