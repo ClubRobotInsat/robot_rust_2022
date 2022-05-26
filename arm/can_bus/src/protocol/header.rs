@@ -58,7 +58,7 @@ impl Header {
     /// Returns the correspondant header from a message
     /// # Warning
     /// If the message received was not well formatted the result of this function might be
-    /// erroneous as there is no way to know it
+    /// erroneous as there is no way to know it=
     pub fn new_from_binary_array(array: &[u8; 2]) -> Result<Header, ProtocolError> {
         let id_dest_raw = (array[0] & Self::DEST_MASK) >> Self::DEST_OFFSET;
         let id_src_raw = (array[0] & Self::SRC_MASK) >> Self::SRC_OFFSET;
