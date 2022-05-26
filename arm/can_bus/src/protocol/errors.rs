@@ -7,6 +7,7 @@ pub enum SendError {
 #[derive(Debug, PartialEq)]
 pub enum ProtocolError {
     InvalidId(usize),
+    MessageTooShort(usize),
     MessageTooLong,
     ParametersTooLong,
     SrcAndDestCanNotBeEqual,

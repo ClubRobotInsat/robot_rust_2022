@@ -8,17 +8,17 @@ use core::cell::RefCell;
 use panic_halt as _;
 
 use crate::pac::NVIC;
+use crate::protocol::errors::ProtocolError;
 use crate::protocol::header::Header;
 use crate::protocol::message::Message;
-use crate::protocol::message_in_progress::Messages;
 use crate::protocol::packet::Packet;
+use crate::protocol::protocol::Protocol;
 use crate::protocol::{CanId, MessageId, SeqId};
 use bxcan::filter::Mask32;
 use bxcan::Interrupt::Fifo0MessagePending;
 use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
-use heapless::Vec;
 use nb::block;
 use stm32f1::stm32f103::{Interrupt, CAN1};
 use stm32f1xx_hal::can::Can;
@@ -30,10 +30,11 @@ use stm32f1xx_hal::{
 
 mod protocol;
 
-const HOST_ID: u8 = 3;
+const SENDER_ID: usize = 3;
+const RECEIVER_ID: usize = 2;
 
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
-static SENDER: Mutex<RefCell<Option<Messages>>> = Mutex::new(RefCell::new(None));
+static SENDER: Mutex<RefCell<Option<Protocol>>> = Mutex::new(RefCell::new(None));
 
 #[allow(non_snake_case)]
 #[interrupt]
@@ -47,7 +48,12 @@ fn USB_LP_CAN_RX0() {
             Ok(v) => {
                 //hprintln!("Read");
                 let read: [u8; 8] = <[u8; 8]>::try_from(v.data().unwrap().as_ref()).unwrap();
-                SENDER.borrow(&cs).take().unwrap().process_raw_packet(read);
+                SENDER
+                    .borrow(&cs)
+                    .take()
+                    .unwrap()
+                    .process_raw_packet(read)
+                    .unwrap();
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
             }
@@ -78,7 +84,6 @@ fn main() -> ! {
     let rcc = dp.RCC.constrain();
     let mut afio = dp.AFIO.constrain();
     let mut gpioa = dp.GPIOA.split();
-    let mut gpioc = dp.GPIOC.split();
 
     let rx_can = gpioa.pa11.into_floating_input(&mut gpioa.crh);
     let tx_can = gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
@@ -107,7 +112,7 @@ fn main() -> ! {
     cortex_m::interrupt::free(|cs| {
         CAN.borrow(cs).replace(Some(can));
         SENDER.borrow(&cs).replace(Some(
-            Messages::new(CanId::new(HOST_ID as usize).unwrap()).unwrap(),
+            Protocol::new(CanId::new(SENDER_ID as usize).unwrap()).unwrap(),
         ));
     });
 
@@ -117,95 +122,63 @@ fn main() -> ! {
     let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
     timer.start(1.Hz()).unwrap();
 
-    hprintln!("Début de l'envoi");
+    hprintln!("Début de l'envoi").ok();
 
-    let mut sender1 = Messages::new(CanId::new(2).unwrap()).unwrap();
+    let mut sender = Protocol::new(CanId::new(SENDER_ID).unwrap()).unwrap();
+    let mut receiver = Protocol::new(CanId::new(RECEIVER_ID).unwrap()).unwrap();
 
-    sender1.add_message_to_send_buff(
+    sender.add_message_to_send_buff(
         Message::new(
-            MessageId::new(5).unwrap(),
-            CanId::new(3).unwrap(),
-            sender1.host_id,
-            Vec::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap(),
+            MessageId::new(0).unwrap(),
+            CanId::new(RECEIVER_ID).unwrap(),
+            sender.host_id,
+            &[1, 2, 3, 4, 5, 6, 7, 8],
+        )
+        .unwrap(),
+    );
+    sender.add_message_to_send_buff(
+        Message::new(
+            MessageId::new(2).unwrap(),
+            CanId::new(RECEIVER_ID).unwrap(),
+            sender.host_id,
+            &[9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
         )
         .unwrap(),
     );
 
     loop {
-        block!(timer.wait()).unwrap();
-
-        hprintln!(
-            "Next packet: {:?}",
-            sender1
-                .get_next_packet_to_send()
-                .unwrap_or(Some(Vec::<u8, 8>::from_slice(&[0; 8]).unwrap()))
-                .unwrap(),
-        )
-        .ok();
-
-        sender1
-            .process_raw_packet(
-                Packet::new(
-                    Header::new(
-                        sender1.host_id,
-                        CanId::new(5).unwrap(),
-                        false,
-                        MessageId::new(3).unwrap(),
-                        SeqId::new(0).unwrap(),
-                    )
-                    .unwrap(),
-                    [9, 10, 11, 12, 13, 14],
-                )
-                .get_packet_as_binary_array(),
-            )
-            .unwrap();
-        hprintln!("rec: {:?}", sender1.received.clone()).ok();
-        //Send CODE
-        /*
-                    block!(can.transmit(&data1)).unwrap();
-
-                    block!(timer.wait()).unwrap();
-                    block!(can.transmit(&data2)).unwrap();
-                    //Wait 1 second
-                    block!(timer.wait()).unwrap();
-
-                    block!(can.transmit(&data_off1)).unwrap();
-                    block!(timer.wait()).unwrap();
-                    block!(can.transmit(&data_off2)).unwrap();
-                    //Wait 1 second
-                    block!(timer.wait()).unwrap();
-        */
-        //Receive CODE
-        //ID recognition
-
-        //
-        //     match block!(can.receive()) {
-        //         Ok(v) => {
-        //             //hprintln!("Read");
-        //             let read = v.data().unwrap().as_ref();
-        //             //Check ID = 1
-        //             //hprintln!("ID = {:?}", v.data().unwrap());
-        //             if read[0] == 2{
-        //
-        //                 if  read[2] == 1 {
-        //                     led.set_high();
-        //                     hprintln!("HIGH");
-        //                 }
-        //                 else if read[2] == 0 {
-        //                     led.set_low();
-        //                     hprintln!("LOW");
-        //                 } else {
-        //                     hprintln!("Unknown Command");
-        //                 }
-        //             } else {
-        //                 hprintln!("NOT ME");
-        //             }
-        //
-        //         }
-        //         Err(e) => {
-        //             hprintln!("err",);
-        //         }
-        //     }
-        //
+        match sender.get_next_packet_to_send() {
+            Ok(None) => {
+                hprintln!("No packet to send");
+            }
+            Ok(Some(raw_packet)) => {
+                hprintln!("Send raw packet {:?}", raw_packet);
+                match receiver.process_raw_packet(raw_packet) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        hprintln!("Unrecoverable error : {:?}", e);
+                        panic!();
+                    }
+                }
+                match receiver.get_next_packet_to_send() {
+                    Ok(None) => {
+                        hprintln!("Strange, normally I have an ack to send");
+                    }
+                    Ok(Some(raw_ack)) => {
+                        hprintln!("Send raw ACK: {:?}", raw_ack);
+                        sender.process_raw_packet(raw_ack);
+                    }
+                    Err(e) => {
+                        hprintln!("Unrecoverable error : {:?}", e);
+                        panic!();
+                    }
+                }
+                //hprintln!("Received packet {:?}", packet);
+            }
+            Err(e) => {
+                hprintln!("Unrecoverable error : {:?}", e);
+                panic!();
+            }
+        }
     }
 }
