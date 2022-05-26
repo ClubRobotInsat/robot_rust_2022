@@ -8,14 +8,13 @@ use core::cell::RefCell;
 use panic_halt as _;
 
 use crate::pac::NVIC;
-use crate::protocol::errors::ProtocolError;
-use crate::protocol::header::Header;
 use crate::protocol::message::Message;
 use crate::protocol::packet::Packet;
 use crate::protocol::protocol::Protocol;
 use crate::protocol::{CanId, MessageId, SeqId};
 use bxcan::filter::Mask32;
 use bxcan::Interrupt::Fifo0MessagePending;
+use bxcan::{Frame, StandardId};
 use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
@@ -31,7 +30,7 @@ use stm32f1xx_hal::{
 mod protocol;
 
 const SENDER_ID: usize = 3;
-const RECEIVER_ID: usize = 2;
+const RECEIVER_ID: usize = 0;
 
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
 static SENDER: Mutex<RefCell<Option<Protocol>>> = Mutex::new(RefCell::new(None));
@@ -40,38 +39,22 @@ static SENDER: Mutex<RefCell<Option<Protocol>>> = Mutex::new(RefCell::new(None))
 #[interrupt]
 fn USB_LP_CAN_RX0() {
     cortex_m::interrupt::free(|cs| {
-        // We need ownership of can ( bc it doesnt work without it ) so we take ownership out of the Option replacing it with None in the mutex and at the end of the critical section we replace the
-        let mut mutex_lock = CAN.borrow(cs).borrow_mut();
-        let mut can = mutex_lock.take().unwrap();
-        // we always have a value as NVIC enable interrupt is after the blocking can setup
+        let mut can_lock = CAN.borrow(cs).borrow_mut();
+        let mut can = can_lock.take().expect("Failed to lock can");
         match block!(can.receive()) {
             Ok(v) => {
-                //hprintln!("Read");
                 let read: [u8; 8] = <[u8; 8]>::try_from(v.data().unwrap().as_ref()).unwrap();
-                SENDER
-                    .borrow(&cs)
-                    .take()
-                    .unwrap()
-                    .process_raw_packet(read)
-                    .unwrap();
-                //Check ID = 1
-                //hprintln!("ID = {:?}", v.data().unwrap());
+                hprintln!("Recv raw packet {:?}", read);
+                let mut sender_lock = SENDER.borrow(cs).borrow_mut();
+                let mut sender = sender_lock.take().expect("Failed to lock sender");
+                sender.process_raw_packet(read).unwrap();
+                sender_lock.replace(sender);
             }
             Err(e) => {
                 hprintln!("err: {:?}", e).ok();
             }
         }
-        // we always have a value as NVIC enable interrupt is after the blocking can setup
-        match can.receive() {
-            Ok(_) => {
-                // TODO: Traiter la réception
-                // let read = frame.data().unwrap().as_ref();
-            }
-            Err(e) => {
-                hprintln!("err: {:?}", e).ok();
-            }
-        }
-        mutex_lock.replace(can);
+        can_lock.replace(can);
     });
 }
 
@@ -125,7 +108,6 @@ fn main() -> ! {
     hprintln!("Début de l'envoi").ok();
 
     let mut sender = Protocol::new(CanId::new(SENDER_ID).unwrap()).unwrap();
-    let mut receiver = Protocol::new(CanId::new(RECEIVER_ID).unwrap()).unwrap();
 
     sender.add_message_to_send_buff(
         Message::new(
@@ -146,34 +128,28 @@ fn main() -> ! {
         .unwrap(),
     );
 
+    cortex_m::interrupt::free(|cs| {
+        let mut sender_lock = SENDER.borrow(cs).borrow_mut();
+        sender_lock.replace(sender);
+    });
+
     loop {
-        match sender.get_next_packet_to_send() {
+        let next_packet = cortex_m::interrupt::free(|cs| {
+            let mut sender_lock = SENDER.borrow(cs).borrow_mut();
+            let mut sender = sender_lock.take().expect("STRANGE");
+            let packet = sender.get_next_packet_to_send();
+            sender_lock.replace(sender);
+            packet
+        });
+        match next_packet {
+            Ok(Some(raw_packet)) => cortex_m::interrupt::free(|cs| {
+                let mut lock = CAN.borrow(cs).borrow_mut();
+                let mut can = lock.take().expect("honooo can");
+                block!(can.transmit(&Frame::new_data(StandardId::new(1u16).unwrap(), raw_packet)));
+                lock.replace(can);
+            }),
             Ok(None) => {
                 hprintln!("No packet to send");
-            }
-            Ok(Some(raw_packet)) => {
-                hprintln!("Send raw packet {:?}", raw_packet);
-                match receiver.process_raw_packet(raw_packet) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        hprintln!("Unrecoverable error : {:?}", e);
-                        panic!();
-                    }
-                }
-                match receiver.get_next_packet_to_send() {
-                    Ok(None) => {
-                        hprintln!("Strange, normally I have an ack to send");
-                    }
-                    Ok(Some(raw_ack)) => {
-                        hprintln!("Send raw ACK: {:?}", raw_ack);
-                        sender.process_raw_packet(raw_ack);
-                    }
-                    Err(e) => {
-                        hprintln!("Unrecoverable error : {:?}", e);
-                        panic!();
-                    }
-                }
-                //hprintln!("Received packet {:?}", packet);
             }
             Err(e) => {
                 hprintln!("Unrecoverable error : {:?}", e);

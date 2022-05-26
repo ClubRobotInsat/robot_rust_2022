@@ -2,9 +2,7 @@ use crate::protocol::errors::ProtocolError;
 use crate::protocol::header::Header;
 use crate::protocol::packet::Packet;
 use crate::protocol::{CanId, MessageId, SeqId, MAX_MESSAGE_LEN, MAX_SEQ_NUMBER, PACKET_DATA_SIZE};
-use cortex_m_semihosting::hprintln;
 use heapless::Vec;
-use stm32f1xx_hal::time::ms;
 
 #[derive(Debug, Clone)]
 pub struct Message {

@@ -3,7 +3,6 @@ use crate::protocol::message_in_progress::MessageInProgress;
 use crate::protocol::{CAN_PACKET_SIZE, PACKET_DATA_SIZE};
 use crate::{CanId, Message, Packet, SeqId};
 use core::mem::swap;
-use cortex_m_semihosting::hprintln;
 use heapless::Vec;
 
 pub struct Protocol {
@@ -45,7 +44,6 @@ impl Protocol {
         self.send_ack(&packet);
         // TODO P0: I've supposed we maintain order it shouldnt be that way
         let mut message_already_exists = false;
-        let len = self.messages_in_progess.len();
         for i in &mut self.messages_in_progess {
             match i.buff.get(0) {
                 None => {}
