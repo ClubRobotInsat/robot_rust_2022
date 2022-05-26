@@ -50,7 +50,7 @@ fn USB_LP_CAN_RX0() {
                 //hprintln!("Read");
                 let read:[u8;8] = <[u8; 8]>::try_from(v.data().unwrap().as_ref()).unwrap();
                 SENDER.borrow(&cs)
-                    .take().unwrap().process_message(read);
+                    .borrow_mut().as_mut().unwrap().process_message(read);
                 //Check ID = 1
                 //hprintln!("ID = {:?}", v.data().unwrap());
 
