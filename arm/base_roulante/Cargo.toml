@@ -14,8 +14,11 @@ cortex-m-rt = "0.7"
 panic-halt = "0.2.0"
 bxcan = "0.5.1"
 stm32f1xx-hal = {version = "0.9.0", features = ["stm32f103", "rt", "medium", "has-can"]}
-cortex-m-semihosting = "0.3.3"
-
+# Panic behaviour, see https://crates.io/keywords/panic-impl for alternatives
+panic-semihosting = "0.6"
+# Allows hprintln method. Caution, a hprintln is very slow and use interrupt to work, you should avoid it for the final code version
+cortex-m-semihosting = "0.5"
+stm32f1 = "0.14.0"
 
 #[dependencies.stm32f1xx-hal]
 #features = ["stm32f103", "rt", "medium"] #por que no deja has-can cuando esta en las features de .toml
