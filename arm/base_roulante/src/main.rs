@@ -7,16 +7,13 @@ use cortex_m_semihosting::{hprint, hprintln};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::{PwmPin, Qei};
 use panic_semihosting as _;
+use stm32f1::stm32f103::interrupt;
+use stm32f1::stm32f103::Interrupt;
+use stm32f1::stm32f103::NVIC;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::qei::QeiOptions;
-use stm32f1xx_hal::timer::{Event, Tim3NoRemap, Tim4NoRemap, Timer};
+use stm32f1xx_hal::timer::{Event, Timer};
 use stm32f1xx_hal::{pac, qei};
-use stm32f1xx_hal::gpio::{CRL, ExtiPin, Floating, Input, Pin};
-use stm32f1::stm32f103::{Interrupt};
-use stm32f1::stm32f103::interrupt;
-use stm32f1::stm32f103::NVIC;
-use crate::pac::{EXTI, TIM3};
-use crate::pac::rtc::crl::CNF_A::EXIT;
 
 const MAX_SYST_VALUE: u32 = 0x00ffffff;
 
@@ -61,13 +58,12 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
         //
         let max_duty = self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR / 100;
         self.pwm.set_duty(max_duty);
-        hprintln!("{}",self.coding_wheel.count());
+        hprintln!("{}", self.coding_wheel.count());
         // let corrected_setpoint = (pid_correction * max_duty as u64 / Self::MAX_CORRECTION);
         //
         // self.pwm.set_duty(corrected_setpoint as u16);
         //
         // self.last_value = value;
-
     }
 }
 
@@ -96,11 +92,15 @@ impl PID {
         error * self.kp + self.integral * self.ki + d_err * self.kd
     }
 }
-#[interrupt]
-unsafe fn TIM4() {
-    // let qei = unsafe { QEIL.as_mut_ptr()};
-    // let (mut tim, pins) =  (*qei).release();
 
+unsafe fn clear_tim4interrupt_bit() {
+    (*stm32f1::stm32f103::TIM4::ptr())
+        .sr
+        .write(|w| w.uif().clear_bit());
+}
+#[interrupt]
+fn TIM4() {
+    unsafe { clear_tim4interrupt_bit() }
     hprint!("overflow");
 }
 
@@ -136,8 +136,7 @@ fn main() -> ! {
     let left_coding_b = gpiob.pb7.into_floating_input(&mut gpiob.crl);
     let mut tim4 = Timer::new(dp.TIM4, &clocks);
     tim4.listen(Event::Update);
-    let tim4_p  = unsafe { &mut *TIM4_P.as_mut_ptr()};
-    *tim4_p = &mut tim4;
+    let tim4_p = unsafe { &mut *TIM4_P.as_mut_ptr() };
     let mut qei_left = tim4.qei(
         (left_coding_a, left_coding_b),
         &mut afio.mapr,
@@ -153,7 +152,7 @@ fn main() -> ! {
     // release -> QEI {tim, pins }
     let right_coding_a = gpioa.pa6.into_floating_input(&mut gpioa.crl);
     let right_coding_b = gpioa.pa7.into_floating_input(&mut gpioa.crl);
-    let qei_right= Timer::new(dp.TIM3, &clocks).qei(
+    let qei_right = Timer::new(dp.TIM3, &clocks).qei(
         (right_coding_a, right_coding_b),
         &mut afio.mapr,
         QeiOptions {
