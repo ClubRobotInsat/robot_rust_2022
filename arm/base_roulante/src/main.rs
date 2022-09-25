@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use core::convert::TryInto;
 use core::mem::MaybeUninit;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::{hprint, hprintln};
@@ -25,6 +26,7 @@ struct Motor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> {
     pwm: PWM,
     coding_wheel: CW,
     last_value: u16,
+    corrector: PID,
 }
 
 impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, PWM, CW> {
@@ -38,27 +40,31 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
             pwm,
             coding_wheel,
             last_value: 0,
+            corrector: PID::new(60, 0, 0)
         }
     }
 
     pub fn update(&mut self, dt: u32) {
-        // // dt = time delta between calls
-        // // dt en ticks (= 1µs)
-        // let value: u16 = self.coding_wheel.count();
-        //
-        // let error = if value < self.target {
-        //     self.target - value
-        // } else {
-        //     0
-        //     //value - self.target
-        // } as u64;
-        //
-        // let mut pid_correction = self.k_p * error / 100;
-        // pid_correction = pid_correction.min(Self::MAX_CORRECTION);
-        //
-        let max_duty = self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR / 100;
-        self.pwm.set_duty(max_duty);
-        hprintln!("{}", self.coding_wheel.count());
+        // dt = time delta between calls
+        // dt en ticks (= 1µs)
+        let value: u16 = self.coding_wheel.count();
+        let error: u16 = if (value as u32) < self.corrector.target {
+            self.corrector.target as u16 - (value as u16)
+        } else {
+            0
+            //value - self.target
+        } as u16;
+
+        let mut pid_correction = self.corrector.kp as u32 * error as u32 / 100;
+        pid_correction = pid_correction.min(Self::MAX_CORRECTION as u32);
+
+        let max_duty = (self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR) / 100;
+        let duty = (max_duty as u32 * pid_correction) /Self::MAX_CORRECTION as u32;
+        self.pwm.set_duty(duty.try_into().expect("duty trop grand"));
+        hprintln!("enc: {}", value);
+        hprintln!("duty: {}, max: {}", duty, max_duty);
+        hprintln!("err: {}", error);
+
         // let corrected_setpoint = (pid_correction * max_duty as u64 / Self::MAX_CORRECTION);
         //
         // self.pwm.set_duty(corrected_setpoint as u16);
@@ -68,29 +74,31 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
 }
 
 struct PID {
-    kp: f32,
-    ki: f32,
-    kd: f32,
-    last_error: f32,
-    integral: f32,
+    kp: u16,
+    ki: u16,
+    kd: u16,
+    last_error: u16,
+    integral: u32,
+    target: u32,
 }
 
 impl PID {
-    fn new(kp: f32, ki: f32, kd: f32) -> Self {
+    fn new(kp: u16, ki: u16, kd: u16) -> Self {
         Self {
             kp,
             ki,
             kd,
-            last_error: 0.0,
-            integral: 0.0,
+            last_error: 0,
+            integral: 0,
+            target: 10_000
         }
     }
 
-    fn compute(&mut self, error: f32, dt: f32) -> f32 {
-        self.integral += error;
-        let d_err = (self.last_error - error) / dt;
-        error * self.kp + self.integral * self.ki + d_err * self.kd
-    }
+    // fn compute(&mut self, error: f32, dt: f32) -> f32 {
+    //     self.integral += error;
+    //     let d_err = (self.last_error - error) / dt;
+    //     error * self.kp + self.integral * self.ki + d_err * self.kd
+    // }
 }
 
 unsafe fn clear_tim4interrupt_bit() {
@@ -134,10 +142,12 @@ fn main() -> ! {
 
     let left_coding_a = gpiob.pb6.into_floating_input(&mut gpiob.crl);
     let left_coding_b = gpiob.pb7.into_floating_input(&mut gpiob.crl);
+    let mut dir_left = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
+    hprintln!("coucou");
+    dir_left.set_high();
     let mut tim4 = Timer::new(dp.TIM4, &clocks);
     tim4.listen(Event::Update);
-    let tim4_p = unsafe { &mut *TIM4_P.as_mut_ptr() };
-    let mut qei_left = tim4.qei(
+    let qei_left = tim4.qei(
         (left_coding_a, left_coding_b),
         &mut afio.mapr,
         QeiOptions {
@@ -145,11 +155,6 @@ fn main() -> ! {
             auto_reload_value: 65535,
         },
     );
-    // let qei = unsafe { QEIL.as_mut_ptr() };
-    // unsafe {
-    //     *qei = qei_left;
-    // }
-    // release -> QEI {tim, pins }
     let right_coding_a = gpioa.pa6.into_floating_input(&mut gpioa.crl);
     let right_coding_b = gpioa.pa7.into_floating_input(&mut gpioa.crl);
     let qei_right = Timer::new(dp.TIM3, &clocks).qei(
@@ -161,11 +166,11 @@ fn main() -> ! {
         },
     );
 
-    // let mut left_motor = Motor::new(
-    //     gpiob.pb12.into_push_pull_output(&mut gpiob.crh),
-    //     pwm_left,
-    //     qei_left,
-    // );
+    let mut left_motor = Motor::new(
+        gpiob.pb12.into_push_pull_output(&mut gpiob.crh),
+        pwm_left,
+        qei_left,
+    );
     let mut right_motor = Motor::new(
         gpiob.pb13.into_push_pull_output(&mut gpiob.crh),
         pwm_right,
@@ -180,7 +185,7 @@ fn main() -> ! {
     unsafe { NVIC::unmask(Interrupt::TIM4) }
     loop {
         //block!(timer.wait());
-        // left_motor.update(500);
-        right_motor.update(500);
+        left_motor.update(500);
+        // right_motor.update(500);
     }
 }
