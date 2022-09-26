@@ -15,6 +15,7 @@ use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::qei::QeiOptions;
 use stm32f1xx_hal::timer::{Event, Timer};
 use stm32f1xx_hal::{pac, qei};
+use stm32f1xx_hal::gpio::{CRH, Output, Pin, PushPull};
 
 const MAX_SYST_VALUE: u32 = 0x00ffffff;
 
@@ -40,7 +41,7 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
             pwm,
             coding_wheel,
             last_value: 0,
-            corrector: PID::new(60, 0, 0)
+            corrector: PID::new(60, 10, 0),
         }
     }
 
@@ -48,22 +49,34 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
         // dt = time delta between calls
         // dt en ticks (= 1µs)
         let value: u16 = self.coding_wheel.count();
-        let error: u16 = if (value as u32) < self.corrector.target {
-            self.corrector.target as u16 - (value as u16)
-        } else {
-            0
-            //value - self.target
-        } as u16;
+        let error: i32 = self.corrector.target as i32 - (value as i32);
 
-        let mut pid_correction = self.corrector.kp as u32 * error as u32 / 100;
+        if error > 0 {
+            self.direction.set_high().ok();
+        } else {
+            self.direction.set_low().ok();
+        }
+
+        hprintln!("{:?},{:?}", value, error);
+        if error.unsigned_abs() < self.corrector.margin as u32  {
+            self.pwm.set_duty(0);
+            return;
+        }
+
+        let error: u16 = error.unsigned_abs() as u16;
+        let proportional =  self.corrector.kp as u32 * error as u32;
+        let integral = self.corrector.ki as u32 * error as u32;
+        self.corrector.integral += integral;
+        let integral = self.corrector.integral;
+        let mut pid_correction = (proportional + integral )  / 100;
         pid_correction = pid_correction.min(Self::MAX_CORRECTION as u32);
 
         let max_duty = (self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR) / 100;
         let duty = (max_duty as u32 * pid_correction) /Self::MAX_CORRECTION as u32;
         self.pwm.set_duty(duty.try_into().expect("duty trop grand"));
-        hprintln!("enc: {}", value);
-        hprintln!("duty: {}, max: {}", duty, max_duty);
-        hprintln!("err: {}", error);
+        // hprintln!("enc: {}", value);
+        // hprintln!("duty: {}, max: {}", duty, max_duty);
+        // hprintln!("err: {}", error);
 
         // let corrected_setpoint = (pid_correction * max_duty as u64 / Self::MAX_CORRECTION);
         //
@@ -80,6 +93,7 @@ struct PID {
     last_error: u16,
     integral: u32,
     target: u32,
+    margin: u16
 }
 
 impl PID {
@@ -90,7 +104,8 @@ impl PID {
             kd,
             last_error: 0,
             integral: 0,
-            target: 10_000
+            target: 10_000,
+            margin: 200
         }
     }
 
@@ -109,7 +124,7 @@ unsafe fn clear_tim4interrupt_bit() {
 #[interrupt]
 fn TIM4() {
     unsafe { clear_tim4interrupt_bit() }
-    hprint!("overflow");
+    //hprint!("overflow");
 }
 
 #[entry]
@@ -129,6 +144,7 @@ fn main() -> ! {
 
     let mut gpioa = dp.GPIOA.split();
     let mut gpiob = dp.GPIOB.split();
+    let mut gpioc = dp.GPIOC.split();
 
     let left_pwm_pin = gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
     let right_pwm_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
@@ -142,9 +158,8 @@ fn main() -> ! {
 
     let left_coding_a = gpiob.pb6.into_floating_input(&mut gpiob.crl);
     let left_coding_b = gpiob.pb7.into_floating_input(&mut gpiob.crl);
-    let mut dir_left = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
-    hprintln!("coucou");
-    dir_left.set_high();
+    let mut dir_left = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    // hprintln!("coucou");
     let mut tim4 = Timer::new(dp.TIM4, &clocks);
     tim4.listen(Event::Update);
     let qei_left = tim4.qei(
@@ -183,9 +198,12 @@ fn main() -> ! {
     // dp.TIM4.listen_interrupt() ça fat quoi???
     // enable interrupt
     unsafe { NVIC::unmask(Interrupt::TIM4) }
+    dir_left.set_high();
+    // dir_left.set_low();
+    // hprint!("cucou");
     loop {
         //block!(timer.wait());
         left_motor.update(500);
-        // right_motor.update(500);
+        right_motor.update(500);
     }
 }
