@@ -3,6 +3,7 @@
 
 use core::convert::TryInto;
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicI32, Ordering};
 use cortex_m_rt::entry;
 use cortex_m_semihosting::{hprint, hprintln};
 use embedded_hal::digital::v2::OutputPin;
@@ -28,36 +29,65 @@ struct Motor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> {
     coding_wheel: CW,
     last_value: u16,
     corrector: PID,
+    encoder_sync:bool,
+    orientation: bool
 }
 
 impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, PWM, CW> {
     const MAX_CORRECTION: u64 = 1000;
-    const MAX_DUTY_FACTOR: u16 = 25;
+    const MAX_DUTY_FACTOR: u16 = 50;
 
-    fn new(direction: DIR, mut pwm: PWM, coding_wheel: CW) -> Self {
+    fn new(direction: DIR, mut pwm: PWM, coding_wheel: CW, dir: bool, orientation: bool) -> Self {
         pwm.enable();
-        Self {
-            direction,
-            pwm,
-            coding_wheel,
-            last_value: 0,
-            corrector: PID::new(60, 10, 0),
+        if dir {
+            Self {
+                direction,
+                pwm,
+                coding_wheel,
+                last_value: 0,
+                corrector: PID::new(60, 10, 0, 10000),
+                encoder_sync: dir,
+                orientation
+            }
+        }
+        else {
+            Self {
+                direction,
+                pwm,
+                coding_wheel,
+                last_value: 0,
+                corrector: PID::new(60, 10, 0, -10000),
+                encoder_sync: dir,
+                orientation
+            }
         }
     }
 
-    pub fn update(&mut self, dt: u32) {
+    pub fn update(&mut self, offset: i32) {
         // dt = time delta between calls
         // dt en ticks (= 1µs)
-        let value: u16 = self.coding_wheel.count();
-        let error: i32 = self.corrector.target as i32 - (value as i32);
-
-        if error > 0 {
-            self.direction.set_high().ok();
-        } else {
-            self.direction.set_low().ok();
+        let mut value: i32 = self.coding_wheel.count() as i32 + offset;
+        if self.orientation {
+            value = -value;
         }
 
-        hprintln!("{:?},{:?}", value, error);
+        let error: i32 = self.corrector.target as i32 - (value as i32);
+
+        //hprintln!("{:?} {:?} {:?}", LEFT_OFFSET, value, self.coding_wheel.count());
+        if error > 0 {
+            if self.encoder_sync {
+                self.direction.set_high().ok();
+            } else {
+                self.direction.set_low().ok();
+            }
+        } else {
+            if self.encoder_sync {
+                self.direction.set_low().ok();
+            } else {
+                self.direction.set_high().ok();
+            }
+        }
+
         if error.unsigned_abs() < self.corrector.margin as u32  {
             self.pwm.set_duty(0);
             return;
@@ -78,6 +108,7 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
         // hprintln!("duty: {}, max: {}", duty, max_duty);
         // hprintln!("err: {}", error);
 
+
         // let corrected_setpoint = (pid_correction * max_duty as u64 / Self::MAX_CORRECTION);
         //
         // self.pwm.set_duty(corrected_setpoint as u16);
@@ -92,19 +123,19 @@ struct PID {
     kd: u16,
     last_error: u16,
     integral: u32,
-    target: u32,
+    target: i32,
     margin: u16
 }
 
 impl PID {
-    fn new(kp: u16, ki: u16, kd: u16) -> Self {
+    fn new(kp: u16, ki: u16, kd: u16, consigne: i32) -> Self {
         Self {
             kp,
             ki,
             kd,
             last_error: 0,
             integral: 0,
-            target: 10_000,
+            target: consigne,
             margin: 200
         }
     }
@@ -121,10 +152,42 @@ unsafe fn clear_tim4interrupt_bit() {
         .sr
         .write(|w| w.uif().clear_bit());
 }
+unsafe fn clear_tim3interrupt_bit() {
+    (*stm32f1::stm32f103::TIM3::ptr())
+        .sr
+        .write(|w| w.uif().clear_bit());
+}
+
+static LEFT_OFFSET: AtomicI32 = AtomicI32::new(0);
+static RIGHT_OFFSET: AtomicI32 = AtomicI32::new(0);
+
 #[interrupt]
 fn TIM4() {
+    let count = unsafe {
+        (*stm32f1::stm32f103::TIM4::ptr())
+            .cnt.read().bits()
+    };
+
+    if count < 65535/2 {
+        LEFT_OFFSET.fetch_add(65536, Ordering::Relaxed);
+    } else {
+        LEFT_OFFSET.fetch_sub(65536, Ordering::Relaxed);
+    }
     unsafe { clear_tim4interrupt_bit() }
-    //hprint!("overflow");
+}
+#[interrupt]
+fn TIM3() {
+    let count = unsafe {
+        (*stm32f1::stm32f103::TIM3::ptr())
+            .cnt.read().bits()
+    };
+    if count < 65535/2 {
+        RIGHT_OFFSET.fetch_add(65536, Ordering::Relaxed);
+    } else {
+        RIGHT_OFFSET.fetch_sub(65536, Ordering::Relaxed);
+    }
+
+    unsafe { clear_tim3interrupt_bit() }
 }
 
 #[entry]
@@ -172,7 +235,10 @@ fn main() -> ! {
     );
     let right_coding_a = gpioa.pa6.into_floating_input(&mut gpioa.crl);
     let right_coding_b = gpioa.pa7.into_floating_input(&mut gpioa.crl);
-    let qei_right = Timer::new(dp.TIM3, &clocks).qei(
+
+let mut tim3 = Timer::new(dp.TIM3, &clocks);
+    tim3.listen(Event::Update);
+    let qei_right = tim3.qei(
         (right_coding_a, right_coding_b),
         &mut afio.mapr,
         QeiOptions {
@@ -185,11 +251,15 @@ fn main() -> ! {
         gpiob.pb12.into_push_pull_output(&mut gpiob.crh),
         pwm_left,
         qei_left,
+        false,
+        false
     );
     let mut right_motor = Motor::new(
         gpiob.pb13.into_push_pull_output(&mut gpiob.crh),
         pwm_right,
         qei_right,
+        true,
+        true,
     );
 
     let mut timer = Timer::new(dp.TIM2, &clocks).counter_hz();
@@ -198,12 +268,15 @@ fn main() -> ! {
     // dp.TIM4.listen_interrupt() ça fat quoi???
     // enable interrupt
     unsafe { NVIC::unmask(Interrupt::TIM4) }
+    unsafe { NVIC::unmask(Interrupt::TIM3) }
     dir_left.set_high();
     // dir_left.set_low();
     // hprint!("cucou");
+    LEFT_OFFSET.store(0, Ordering::Relaxed);
+    RIGHT_OFFSET.store(0, Ordering::Relaxed);
     loop {
         //block!(timer.wait());
-        left_motor.update(500);
-        right_motor.update(500);
+        left_motor.update(LEFT_OFFSET.load(Ordering::Relaxed));
+         right_motor.update(RIGHT_OFFSET.load(Ordering::Relaxed));
     }
 }
