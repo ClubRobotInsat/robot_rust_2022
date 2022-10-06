@@ -30,7 +30,7 @@ impl Message {
         let data_len = data.len()/BYTES_LEFT_IN_PACKAGE as usize;
         //vec![false; data_len]
         let mut vec =Vec::<bool,BUFFER_SIZE>::new();
-        for i in 0..data_len {
+        for _ in 0..data_len {
             vec.push(false).unwrap(); // cant crashas Vec always bigger than  sata_len
         }
 

@@ -10,7 +10,7 @@ use core::cell::RefCell;
 use panic_halt as _;
 
 use crate::pac::NVIC;
-//use crate::protocol::Message;
+use crate::protocol::Message;
 use bxcan::filter::Mask32;
 use bxcan::Interrupt::Fifo0MessagePending;
 use bxcan::{Frame, StandardId};
@@ -19,8 +19,8 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
 use heapless::Vec;
 use nb::block;
-//use network_protocol;
-//use network_protocol::MessageSender;
+use network_protocol;
+use network_protocol::MessageSender;
 use stm32f1::stm32f103::{Interrupt, CAN1};
 use stm32f1xx_hal::can::Can;
 use stm32f1xx_hal::gpio::{Alternate, Floating, Input, Pin, PushPull, CRH};
@@ -47,10 +47,10 @@ fn USB_LP_CAN_RX0() {
                 //hprintln!("Read");
                 let read = v.data().unwrap().as_ref();
                 //Check ID = 1
-                hprintln!("ID = {:?}", v.data().unwrap());
-                // for i in read {
-                //     hprintln!("{}", i);
-                // }
+                //hprintln!("ID = {:?}", v.data().unwrap());
+                for i in read {
+                    hprintln!("{i}");
+                }
             },
             Err(e) => {
                 hprintln!("err: {:?}", e).ok();
@@ -144,23 +144,23 @@ fn main() -> ! {
     hprintln!("Debut");
 
     loop {
-        //block!(timer.wait()).unwrap();
+        block!(timer.wait()).unwrap();
 
         //Send CODE
-/*
-       block!(can.transmit(&_data1)).unwrap();
+        /*
+                   block!(can.transmit(&data1)).unwrap();
 
-       block!(timer.wait()).unwrap();
-       block!(can.transmit(&_data2)).unwrap();
-       //Wait 1 second
-       block!(timer.wait()).unwrap();
+                   block!(timer.wait()).unwrap();
+                   block!(can.transmit(&data2)).unwrap();
+                   //Wait 1 second
+                   block!(timer.wait()).unwrap();
 
-       block!(can.transmit(&_data_off1)).unwrap();
-       block!(timer.wait()).unwrap();
-       block!(can.transmit(&_data_off2)).unwrap();
-       //Wait 1 second
-       block!(timer.wait()).unwrap();
+                   block!(can.transmit(&data_off1)).unwrap();
+                   block!(timer.wait()).unwrap();
+                   block!(can.transmit(&data_off2)).unwrap();
+                   //Wait 1 second
+                   block!(timer.wait()).unwrap();
 
-*/
+        */
     }
 }

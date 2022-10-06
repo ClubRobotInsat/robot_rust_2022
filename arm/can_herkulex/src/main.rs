@@ -8,6 +8,7 @@ use core::borrow::BorrowMut;
 use core::cell::RefCell;
 // use core::mem::MaybeUninit;
 use panic_halt as _;
+use drs_0x01::Rotation::Clockwise;
 
 use crate::pac::NVIC;
 //use crate::protocol::Message;
@@ -29,11 +30,24 @@ use stm32f1xx_hal::{
     pac::{self, interrupt},
     prelude::*,
 };
+extern crate drs_0x01;
+extern crate herkulex_drs_0x01_stm32f1xx;
+
+use stm32f1xx_hal::{
+    serial::{Config, Serial},
+};
+
+use herkulex_drs_0x01_stm32f1xx::*;
+use herkulex_drs_0x01_stm32f1xx::communication::Communication;
+use herkulex_drs_0x01_stm32f1xx::motors::Motors;
 
 const ID: u8 = 2;
 
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::Can<Can<CAN1>>>
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
+
+//global read variable
+static READ: Mutex<RefCell<Vec<u8,8>>> = Mutex::new(RefCell::new(Vec::new()));
 
 #[interrupt]
 fn USB_LP_CAN_RX0() {
@@ -46,8 +60,15 @@ fn USB_LP_CAN_RX0() {
             Ok(v) => unsafe {
                 //hprintln!("Read");
                 let read = v.data().unwrap().as_ref();
+                let mutex_read_lock = READ
+                    .borrow(cs)
+                    .replace(
+                        Vec::from_slice(read)
+                            .unwrap()
+                    );
+
                 //Check ID = 1
-                hprintln!("ID = {:?}", v.data().unwrap());
+                //hprintln!("ID = {:?}", v.data().unwrap());
                 // for i in read {
                 //     hprintln!("{}", i);
                 // }
@@ -57,6 +78,7 @@ fn USB_LP_CAN_RX0() {
             }
         }
         mutex_lock.replace(can);
+
     })
 }
 
@@ -76,10 +98,10 @@ fn main() -> ! {
 
     let mut afio = dp.AFIO.constrain();
 
+    let mut gpioa = dp.GPIOA.split();
+
     let mut can1 = {
         let can: stm32f1xx_hal::can::Can<CAN1> = stm32f1xx_hal::can::Can::new(dp.CAN1, dp.USB);
-
-        let mut gpioa = dp.GPIOA.split();
         let rx: Pin<Input<Floating>, CRH, 'A', 11> = gpioa.pa11.into_floating_input(&mut gpioa.crh);
         let tx: Pin<Alternate<PushPull>, CRH, 'A', 12> =
             gpioa.pa12.into_alternate_push_pull(&mut gpioa.crh);
@@ -120,8 +142,8 @@ fn main() -> ! {
     // correct frame ordering based on the transfer id.
 
     //New Delay with timer
-    let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
-    timer.start(1.Hz()).unwrap();
+    //let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
+    //timer.start(1.Hz()).unwrap();
 
     //Send data
     let _data1 = Frame::new_data(
@@ -141,26 +163,94 @@ fn main() -> ! {
         [2_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8],
     );
 
+    // USART1 on Pins A9 and A10
+    let pin_tx = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
+
+    let pin_rx = gpioa.pa10;
+
+    let serial = Serial::usart1(
+        dp.USART1,
+        (pin_tx, pin_rx),
+        &mut afio.mapr,
+        Config::default().baudrate(115200.bps()), // baud rate defined in herkulex doc : 115200
+        clocks.clone(),
+        // &mut rcc.apb2,
+    );
+
+    // separate into tx and rx channels
+    let (mut tx, rx) = serial.split();
+    let mut delay = cp.SYST.delay(&clocks);
+
+    hprintln!("Communication créée").ok();
+    hprintln!("Communication créée").ok();
+
+
+    // La communication est une communication USART utilisant 2 ports : RX et TX
+    // - TX est le port utilisé pour transmettre des informations
+    // - RX est le port utilise pour recevoir des informations
+    let communication = Communication::new(&mut tx, rx);
+    hprintln!("Communication créée");
+
+    let motors = Motors::new(communication);
+    hprintln!("Motors créé");
+
+    let motor2 = motors.new_motor(0x02);
+
+    motor2.reboot();
+    // hprintln!("servos redémarrés");
+    delay.delay_ms(400_u16);
+
+    // Afin de faire tourner les servos il est nécessaire d'activer le torque
+    // Dans le cas contraire les ser
+    motor2.enable_torque();
+    // hprintln!("servos torque activé");
+    delay.delay_ms(100_u16);
+
+
     hprintln!("Debut");
 
     loop {
+        let mut cmd : Vec<u8,8> = Vec::new();
+        cortex_m::interrupt::free(|cs | {
+            cmd = READ.borrow(cs).replace(Vec::new());
+        });
+
+        match cmd.last(){
+            None => {
+                motor2.set_speed(0, Clockwise);
+                //hprintln!("None");
+                delay.delay_ms(2000_u16);
+            }
+            Some(v) => {
+                if v == &1_u8{
+                    motor2.set_speed(512, Clockwise);
+                    //hprintln!("tourne");
+                    delay.delay_ms(2000_u16);
+                } else {
+                    motor2.set_speed(0, Clockwise);
+                    //hprintln!("arrete");
+                    delay.delay_ms(2000_u16);
+                }
+            }
+        }
         //block!(timer.wait()).unwrap();
 
         //Send CODE
-/*
-       block!(can.transmit(&_data1)).unwrap();
+        /*
+               block!(can.transmit(&_data1)).unwrap();
 
-       block!(timer.wait()).unwrap();
-       block!(can.transmit(&_data2)).unwrap();
-       //Wait 1 second
-       block!(timer.wait()).unwrap();
+               block!(timer.wait()).unwrap();
+               block!(can.transmit(&_data2)).unwrap();
+               //Wait 1 second
+               block!(timer.wait()).unwrap();
 
-       block!(can.transmit(&_data_off1)).unwrap();
-       block!(timer.wait()).unwrap();
-       block!(can.transmit(&_data_off2)).unwrap();
-       //Wait 1 second
-       block!(timer.wait()).unwrap();
+               block!(can.transmit(&_data_off1)).unwrap();
+               block!(timer.wait()).unwrap();
+               block!(can.transmit(&_data_off2)).unwrap();
+               //Wait 1 second
+               block!(timer.wait()).unwrap();
 
-*/
+        */
     }
 }
+

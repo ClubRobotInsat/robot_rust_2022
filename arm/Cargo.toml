@@ -3,7 +3,8 @@
 members = [
     "base_roulante",
     "herkulex",
-    "can_bus"
+    "can_bus",
+    "can_herkulex"
 ]
 
 
