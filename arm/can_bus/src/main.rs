@@ -30,7 +30,8 @@ use stm32f1xx_hal::{
     prelude::*,
 };
 
-const ID: u8 = 2;
+//CAN ID of the STM
+const ID: u16 = 6;
 
 // type bxcan::Can<Can<CAN1>>> not to be confused with the totally different type stm32f1xx_hal::Can<Can<CAN1>>>
 static CAN: Mutex<RefCell<Option<bxcan::Can<Can<CAN1>>>>> = Mutex::new(RefCell::new(None));
@@ -95,8 +96,15 @@ fn main() -> ! {
     can1.modify_config().set_bit_timing(0x001c_0003);
 
     // Configure filters so that can frames can be received.
+    // Here the filters are configured to only receive frame with our ID
     let mut filters = can1.modify_filters();
-    filters.enable_bank(0, Mask32::accept_all());
+    filters.enable_bank(0, Mask32::frames_with_std_id(
+        StandardId::new(ID).unwrap(),
+        StandardId::new(0x7FF).unwrap())); //ox7FF is the maximal value (check exact ID)
+
+    //COnfiguration des filtres
+    //Mask indique les bits à vérifier (on les mets à 1)
+    //Id indique la valeur que doivent avoir les bits concernés
 
     // Drop filters to leave filter configuraiton mode.
     drop(filters);
