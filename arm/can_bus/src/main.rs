@@ -11,9 +11,10 @@ use panic_halt as _;
 
 use crate::pac::NVIC;
 //use crate::protocol::Message;
-use bxcan::filter::Mask32;
+use bxcan::filter::{BankConfig, ListEntry16, Mask32};
 use bxcan::Interrupt::Fifo0MessagePending;
 use bxcan::{Frame, StandardId};
+use bxcan::filter::BankConfig::List16;
 use cortex_m::interrupt::Mutex;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::hprintln;
@@ -98,9 +99,14 @@ fn main() -> ! {
     // Configure filters so that can frames can be received.
     // Here the filters are configured to only receive frame with our ID
     let mut filters = can1.modify_filters();
+
+    //To just filter by ID use :
+    //filters.enable_bank(0, BankConfig::List16([ListEntry16::data_frames_with_id(StandardId::new(ID).unwrap()); 4]));
+
+    //To filter using a mask use
     filters.enable_bank(0, Mask32::frames_with_std_id(
-        StandardId::new(ID).unwrap(),
-        StandardId::new(0x7FF).unwrap())); //ox7FF is the maximal value (check exact ID)
+        StandardId::new(0x000).unwrap(),
+        StandardId::new(0x001).unwrap()));  //ox7FF is the maximal value (check exact ID)
 
     //COnfiguration des filtres
     //Mask indique les bits à vérifier (on les mets à 1)
