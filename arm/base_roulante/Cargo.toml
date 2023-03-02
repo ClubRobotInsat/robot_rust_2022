@@ -13,7 +13,7 @@ cortex-m-rt = "0.7"
 # Panic behaviour, see https://crates.io/keywords/panic-impl for alternatives
 panic-halt = "0.2.0"
 bxcan = "0.5.1"
-stm32f1xx-hal = {version = "0.9.0", features = ["stm32f103", "rt", "medium", "has-can"]}
+stm32f1xx-hal = {version = "0.10.0", features = ["stm32f103", "rt", "medium", "has-can"]}
 # Panic behaviour, see https://crates.io/keywords/panic-impl for alternatives
 panic-semihosting = "0.6"
 # Allows hprintln method. Caution, a hprintln is very slow and use interrupt to work, you should avoid it for the final code version

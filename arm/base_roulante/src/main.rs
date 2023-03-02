@@ -16,9 +16,9 @@ use stm32f1::stm32f103::Interrupt;
 use stm32f1::stm32f103::NVIC;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::qei::QeiOptions;
-use stm32f1xx_hal::timer::{CounterHz, Event, Timer, TimerExt};
+use stm32f1xx_hal::timer::{CounterHz, Event, Tim4NoRemap, Timer, TimerExt};
 use stm32f1xx_hal::{pac, qei};
-use stm32f1xx_hal::gpio::{CRH, Output, Pin, PushPull};
+use stm32f1xx_hal::gpio::{Alternate, CRH, CRL, Floating, Input, Output, Pin, PushPull};
 use stm32f1xx_hal::time::MicroSeconds;
 
 const MAX_SYST_VALUE: u32 = 0x00ffffff;
@@ -26,7 +26,11 @@ const MAX_SYST_VALUE: u32 = 0x00ffffff;
 
 // static mut QEIL: MaybeUninit<stm32f1xx_hal::qei::Qei<stm32f1xx_hal::pac::TIM4, Tim4NoRemap, (stm32f1xx_hal::gpio::Pin<Input<Floating>, CRL, 'B', 6_u8>, stm32f1xx_hal::gpio::Pin<Input<Floating>, CRL, 'B', 7_u8>)>> =  MaybeUninit::uninit();
 static mut TIM4_P: MaybeUninit<&mut Timer<stm32f1xx_hal::pac::TIM4>> = MaybeUninit::uninit();
-static motor_left:Mutex<Option<i32>>= Mutex::new(None);
+static motor_left: Mutex<
+    Option<
+        dyn TMotor<_, _, _>
+    >> = Mutex::new(None);
+
 
 //supongo que aqui define la estructura motor con diferentes valores.
 //no entiendo el <>
@@ -41,10 +45,17 @@ struct Motor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> {
     orientation: bool,
 
 }
+trait TMotor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>>  {
+    const MAX_CORRECTION: u64;
+    const MAX_DUTY_FACTOR: u16;
+    fn new(direction: DIR, pwm: PWM, coding_wheel: CW, dir: bool, orientation: bool) -> Self;
+    fn update(&mut self, offset: i32);
+}
+
 //implementacion de la estructura motor, como lo cual tienes que especificar
 // all again
 //dentro de la impl creamos las funciones que queremos que pueda realizar el motor
-impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, PWM, CW> {
+impl <DIR, PWM, CW> TMotor<DIR, PWM, CW> for Motor<DIR, PWM, CW> {
     const MAX_CORRECTION: u64 = 1000;
     const MAX_DUTY_FACTOR: u16 = 50;
 
@@ -61,7 +72,7 @@ impl<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> Motor<DIR, P
         }
     }
 
-    pub fn update(&mut self, offset: i32) {
+    fn update(&mut self, offset: i32) {
         // dt = time delta between calls
         // dt en ticks (= 1µs)
 
@@ -271,7 +282,7 @@ fn TIM2() {
         let mut mutex_lock = motor_left.borrow(cs).borrow_mut();
         //desempaquetar porque el motor esta dentro del mutex
         let mut left_m = mutex_lock.take().unwrap();
-        motor_left.update();
+        left_m.update();
     });
     unsafe { clear_tim2interrupt_bit() }
 }
@@ -335,7 +346,7 @@ fn main() -> ! {
     let mut gpioc = dp.GPIOC.split();
 
     //creación de pin y configuración: pwm para cada motor de cada rueda supongo
-    let left_pwm_pin = gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
+    let left_pwm_pin: Pin<Alternate<PushPull>, CRH, 'A', 8> = gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
     let right_pwm_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
 
     //funcion para crear un timer
@@ -396,6 +407,7 @@ let mut tim3 = Timer::new(dp.TIM3, &clocks);
 
 
     );
+    motor_left=left_motor;
 /*    let mut right_motor = Motor::new(
         gpiob.pb13.into_push_pull_output(&mut gpiob.crh),
         pwm_right,
