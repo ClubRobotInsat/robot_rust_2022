@@ -1,34 +1,42 @@
 #![no_std]
 #![no_main]
 
+
 use core::convert::TryInto;
 use core::mem::MaybeUninit;
+use core::ops::DerefMut;
 use core::sync::atomic::{AtomicI32, Ordering};
-use cortex_m::interrupt::Mutex;
+use core::time::Duration;
+use cortex_m::asm::delay;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::{hprint, hprintln};
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::{PwmPin, Qei};
 
+use heapless::Vec;
+use nb::block;
 use panic_semihosting as _;
-use stm32f1::stm32f103::Interrupt;
-use stm32f1::stm32f103::NVIC;
+use stm32f1::stm32f103::{Interrupt, NVIC};
 use stm32f1::stm32f103::{interrupt, TIM2};
 use stm32f1xx_hal::gpio::{Alternate, Floating, Input, Output, Pin, PushPull};
 use stm32f1xx_hal::pac::gpioa::CRH;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::qei::QeiOptions;
 use stm32f1xx_hal::time::MicroSeconds;
-use stm32f1xx_hal::timer::{CounterHz, Event, Tim4NoRemap, Timer, TimerExt};
+use stm32f1xx_hal::timer::{CounterHz, Event, Tim3NoRemap, Tim4NoRemap, Timer, TimerExt};
 use stm32f1xx_hal::{pac, qei};
+use stm32f1xx_hal::device::TIM3;
 
 const MAX_SYST_VALUE: u32 = 0x00ffffff;
 
+
 // static mut QEIL: MaybeUninit<stm32f1xx_hal::qei::Qei<stm32f1xx_hal::pac::TIM4, Tim4NoRemap, (stm32f1xx_hal::gpio::Pin<Input<Floating>, CRL, 'B', 6_u8>, stm32f1xx_hal::gpio::Pin<Input<Floating>, CRL, 'B', 7_u8>)>> =  MaybeUninit::uninit();
 static mut TIM4_P: MaybeUninit<&mut Timer<stm32f1xx_hal::pac::TIM4>> = MaybeUninit::uninit();
+static mut STIM3: Option<stm32f1xx_hal::qei::Qei<TIM3, Tim3NoRemap, (Pin<'A', 6>, Pin<'A', 7>)>> = None;
 
 //supongo que aqui define la estructura motor con diferentes valores.
 //no entiendo el <>
+
 
 struct Motor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> {
     direction: DIR,
@@ -43,7 +51,7 @@ struct Motor<DIR: OutputPin, PWM: PwmPin<Duty = u16>, CW: Qei<Count = u16>> {
 //implementacion de la estructura motor, como lo cual tienes que especificar
 // all again
 //dentro de la impl creamos las funciones que queremos que pueda realizar el motor
-impl<DIR, PWM, CW> Motor<DIR, PWM, CW> {
+impl<DIR: OutputPin, PWM:  embedded_hal::PwmPin<Duty = u16>, CW: embedded_hal::PwmPin + embedded_hal::Qei<Count = u16>> Motor<DIR, PWM, CW> {
     const MAX_CORRECTION: u64 = 1000;
     const MAX_DUTY_FACTOR: u16 = 50;
 
@@ -59,6 +67,7 @@ impl<DIR, PWM, CW> Motor<DIR, PWM, CW> {
             orientation,
         }
     }
+
 
     fn update(&mut self, offset: i32) {
         // dt = time delta between calls
@@ -95,20 +104,10 @@ impl<DIR, PWM, CW> Motor<DIR, PWM, CW> {
         }
 
         let mut delta_t = 0;
-        /*let time_max= 65535 as u32 ;
-        if real_time<self.corrector.last_time {
-            delta_t=(time_max-self.corrector.last_time+real_time);
-        }
-        else{
-            delta_t=(real_time-self.corrector.last_time);
-        } */
 
         let error: u32 = error.unsigned_abs() as u32;
 
         let proportional = self.corrector.kp as u32 * error as u32;
-        //let integral = (self.corrector.ki * (error as u32*delta_t) as f32) as f32;
-        //self.corrector.integral += integral;
-        //let integral = self.corrector.integral ;
 
         let derivative = 0;
         if (delta_t != 0) {
@@ -124,84 +123,9 @@ impl<DIR, PWM, CW> Motor<DIR, PWM, CW> {
         let max_duty = (self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR) / 100;
         let duty = (max_duty as u32 * pid_correction) / Self::MAX_CORRECTION as u32;
         self.pwm.set_duty(duty.try_into().expect("duty trop grand"));
-        // hprintln!("enc: {}", value);
-        // hprintln!("duty: {}, max: {}", duty, max_duty);
-        // hprintln!("err: {}", error);
-
-        // let corrected_setpoint = (pid_correction * max_duty as u64 / Self::MAX_CORRECTION);
-        //
-        // self.pwm.set_duty(corrected_setpoint as u16);
-        //
-        // self.last_value = value;
     }
 }
-//lo que hacen las funciones de la impl MOTOR
-//1. fn new: lo que haces es cambiar la consigne de 10000 o -10000
-//2. fn update: supongo que lo hace es update el pid con la integral, derivador y el gain proporcional
 
-/*pub fn update1(&mut self, offset: i32) {
-
-
-    let encoder = self.coding_wheel.count() as i32;
-    let mut value: i32 = encoder + offset;
-
-    //traitement des possibles erreurs de branchement
-    if self.orientation {
-        value = -value;
-    }
-
-    //calcul de l'erreur
-    let error: i32 = self.corrector.target as i32 - (value as i32);
-
-    if error > 0 {
-        if self.encoder_sync { //encodersyn : au cas ou l'encoder est connecté à l'envers du mouvement du moteur
-            self.direction.set_high().ok();
-        } else {
-            self.direction.set_low().ok();
-        }
-    } else {
-        if self.encoder_sync {
-            self.direction.set_low().ok();
-        } else {
-            self.direction.set_high().ok();
-        }
-    }
-
-    //une fois le signe de l'erreur a ete traire et les moteurs inversees si necessaire,
-    //traitement de l'erreur en valeur absolue
-    if error.unsigned_abs() < self.corrector.margin as u32  {
-        self.pwm.set_duty(0);
-        return;
-    }
-
-    //le delta t est donné par le timer2
-    let mut delta_t= 0;
-    let error: u32 = error.unsigned_abs() as u32;
-
-    //CORRECTEUR PROPORTIONNEL
-    let proportional =  self.corrector.kp as u32 * error as u32;
-
-    //CORRECTEUR INTEGRAL
-    let integral = (self.corrector.ki * (error as u32*delta_t) as f32) as f32;
-    self.corrector.integral += integral;
-    let integral = self.corrector.integral ;
-
-    //CORRECTEUR DERIVATEUR
-    let  derivative =((self.corrector.kd as u32)* (error - (self.corrector.last_error as u32)) / delta_t);
-
-    //CORRECTEUR FINAL
-    //let mut pid_correction = (proportional + integral + derivative ) ;
-    let mut pid_correction = (proportional) ;
-    pid_correction = pid_correction.min(Self::MAX_CORRECTION as u32);
-
-    //SET DUTY MOTORS
-    let max_duty = (self.pwm.get_max_duty() * Self::MAX_DUTY_FACTOR) / 100;
-    let duty = (max_duty as u32 * pid_correction) /Self::MAX_CORRECTION as u32;
-    self.pwm.set_duty(duty.try_into().expect("duty trop grand"));
-
-}
-
-*/
 
 struct PID {
     kp: f32,
@@ -231,15 +155,7 @@ impl PID {
             //timer,
         }
     }
-
-    // fn compute(&mut self, error: f32, dt: f32) -> f32 {
-    //     self.integral += error;
-    //     let d_err = (self.last_error - error) / dt;
-    //     error * self.kp + self.integral * self.ki + d_err * self.kd
-    // }
 }
-//supongo que aqui configuran las interrupciones para la pwm del tim 3 y 4
-//declaramos en un safe ara que no crash
 
 //sirve para baisser el flag, lo utilizamos en el irq_handleer para que sea más visible.
 unsafe fn clear_tim4interrupt_bit() {
@@ -265,12 +181,17 @@ static RIGHT_OFFSET: AtomicI32 = AtomicI32::new(0);
 
 #[interrupt]
 fn TIM2() {
-    cortex_m::interrupt::free(|cs| {
-        // let mut mutex_lock = MOTOR_LEFT.borrow(cs).borrow_mut();
-        // //desempaquetar porque el motor esta dentro del mutex
-        // let mut left_m = mutex_lock.take().unwrap();
-        // left_m.update();
-    });
+    // static mut arr: Vec<u16, 1000> = Vec::new();
+    // static mut N: u32 = 0;
+    // hprintln!("Interrupt!");
+    // cortex_m::interrupt::free(|cs| unsafe {
+    //     match arr.push(STIM3.as_mut().unwrap().count()) {
+    //         Err(_) => {
+    //             hprintln!("FIN: {:?}" , arr); // the vector is full
+    //         },
+    //         _ => {}
+    //     }
+    // });
     unsafe { clear_tim2interrupt_bit() }
 }
 
@@ -324,7 +245,7 @@ fn main() -> ! {
     let mut gpioc = dp.GPIOC.split();
 
     //creación de pin y configuración: pwm para cada motor de cada rueda supongo
-    let left_pwm_pin: Pin<Alternate<PushPull>, CRH, 'A', 8> =
+    let left_pwm_pin =
         gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
     let right_pwm_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
 
@@ -345,8 +266,9 @@ fn main() -> ! {
     let mut tim4 = Timer::new(dp.TIM4, &clocks);
     tim4.listen(Event::Update);
 
-    let mut tim2 = Timer::new(dp.TIM2, &clocks); //pour gerer les update du PID
+    let mut tim2 = Timer::new(dp.TIM2, &clocks).counter_hz(); //pour gerer les update du PID
     tim2.listen(Event::Update);
+    tim2.start(5.kHz()).expect("Counter panic");
 
     //NI IDEA
     let qei_left = tim4.qei(
@@ -373,40 +295,23 @@ fn main() -> ! {
         },
     );
 
-    //creacion left and right motor a partir de la struct MOTOR
-
-    let mut left_motor = Motor::new(
-        gpiob.pb12.into_push_pull_output(&mut gpiob.crh),
-        pwm_left,
-        qei_left,
-        false,
-        false,
-        //timer2
-    );
-    // MOTOR_LEFT = left_motor;
-    /*    let mut right_motor = Motor::new(
-            gpiob.pb13.into_push_pull_output(&mut gpiob.crh),
-            pwm_right,
-            qei_right,
-            true,
-            true,
-        );
-    */
-
     // dp.TIM4.listen_interrupt() ça fat quoi???
     // enable interrupt
 
     //activo el NVIC  para el interrupt
     unsafe { NVIC::unmask(Interrupt::TIM4) }
     unsafe { NVIC::unmask(Interrupt::TIM3) }
-    dir_left.set_high(); //NO SE QUE HACE
-                         // dir_left.set_low();
-                         // hprint!("cucou");
-    LEFT_OFFSET.store(0, Ordering::Relaxed);
-    RIGHT_OFFSET.store(0, Ordering::Relaxed);
+    unsafe { NVIC::unmask(Interrupt::TIM2) }
+    dir_left.set_high();
+
+    // let mut delay = dp.TIM4.delay_us(&clocks);
+
+
+
+    hprintln!("start");
+    pwm_left.set_duty(pwm_left.get_max_duty());
+    pwm_right.set_duty(pwm_right.get_max_duty());
+    hprintln!("end");
     loop {
-        //block!(timer.wait());
-        left_motor.update(LEFT_OFFSET.load(Ordering::Relaxed));
-        //right_motor.update(RIGHT_OFFSET.load(Ordering::Relaxed));
     }
 }
